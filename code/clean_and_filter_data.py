@@ -21,7 +21,7 @@ def clean_filing(input_filename, filing_type, output_filename):
     """
     
     # open file and get rid of all lines 
-    with open (input_filename, 'r') as f:
+    with open (input_filename, 'r', encoding='utf-8') as f:
         data = f.read().replace('\n', ' ')
     
     # get text in between the appropriate 10-K tags
