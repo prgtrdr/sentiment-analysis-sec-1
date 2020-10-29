@@ -47,7 +47,8 @@ else:
 # ## Get CIK df
 # cik_ticker_list.csv contains cik tickets of companies
 # df_cik = pd.read_csv(os.path.join(project_dir, 'data', 'cik_ticker_list.csv'))
-df_cik = pd.read_csv(os.path.join(project_dir, 'data', '1_analysts_202010151718.csv'))
+# df_cik = pd.read_csv(os.path.join(project_dir, 'data', '1_analysts_202010151718.csv'))
+df_cik = pd.read_csv(os.path.join(project_dir, 'data', 'market_cap_GT_1B.csv'))
 
 def company_name_search(df, company_name_list):
     for company in company_name_list:
