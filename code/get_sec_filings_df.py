@@ -32,7 +32,7 @@ for i in range(len(table_list)):
 df.columns= ['cik', 'company_name', 'filing_type', 'filing_date', 'url', 'url2']
 
 # Fix up company names
-df['company_name'] = [re.sub(r'/.*/|[\.\,]*', '', str(x)) for x in df['company_name']]
+df['company_name'] = [re.sub(r'/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
 
 # ## Check if dataframe correctly generated
 count_list = []
@@ -122,13 +122,13 @@ def download_filings(cik_num_list, from_date='2018-01-01'):
             url_prefix = 'https://www.sec.gov/Archives/'
             row = df_filtered_co.iloc[i,:]
             url = url_prefix + row['url']
-            response = requests.get(url, stream=True, timeout=30)
             
             filing_name = row['filing_date'] + str('_') + row['filing_type']
             if os.path.isfile(filing_name):
                 print('{} file already exists'.format(filing_name))
             else:
                 print('Downloading: {}'.format(filing_name))
+                response = requests.get(url, stream=True, timeout=30)
                 with open('{}'.format(filing_name), 'wb') as handle:
                     for data in tqdm(response.iter_content()):
                         handle.write(data)    
