@@ -1,4 +1,4 @@
-import edgar
+# import edgar
 import os, time
 from pathlib2 import Path
 import pandas as pd
