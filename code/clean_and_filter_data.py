@@ -7,7 +7,27 @@ from pathlib2 import Path
 import re
 import shutil
 import ProjectDirectory as directory
+from io import StringIO
+from html.parser import HTMLParser
 
+# Utility functions
+# Strip out HTML from string
+class MLStripper(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.reset()
+        self.strict = False
+        self.convert_charrefs= True
+        self.text = StringIO()
+    def handle_data(self, d):
+        self.text.write(d)
+    def get_data(self):
+        return self.text.getvalue()
+
+def strip_tags(html):
+    s = MLStripper()
+    s.feed(html)
+    return s.get_data()
 
 def extract_raw(in_document, pos_map, item): 
     item_raw = in_document[pos_map['start'].loc[item]+1:pos_map['end'].loc[item]]
@@ -15,6 +35,29 @@ def extract_raw(in_document, pos_map, item):
     item_text = re.sub(r'\s+\d+\s+Table of Contents', ' ', item_content.get_text(' '), flags=re.IGNORECASE)
     item_text = re.sub(r'\n\s*\d*\s*\n', '', item_text)
     return item_text
+
+"""
+    Function to identify removable tables. Methodology suggested by
+    Loughran-MacDonald https://sraf.nd.edu/data/stage-one-10-x-parse-data/
+"""
+def tablerep(matchobj):
+    text = matchobj.group(0)
+
+    # Strip out all html
+    text = strip_tags(text)
+
+    # Count the letters and numbers
+    numbers = sum(c.isdigit() for c in text)
+    letters = sum(c.isalpha() for c in text)
+    divisor = letters + numbers
+    if divisor == 0:
+        return ''
+
+    if (numbers / divisor) > 0.1: 
+        return ''
+    else:
+        return matchobj.group(0)
+
     
 def clean_filing(input_filename, filing_type, output_filename):
     """
@@ -44,8 +87,11 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Remove tables that do not contain the word 'item.' This fixes docs that incorrectly
         # use tables as page headers.
         data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A).*?>", repl='', string=data)
-        data = re.sub(pattern="(?s)(?i)<TABLE((?!Item).)*?</TABLE>", repl='', string=data)
         data = re.sub(pattern='(?s)(?i)(&#160;|&#32;|&nbsp;|&#xa0;)', repl=' ', string=data)
+
+        # Code to intelligently remove tables. Some people use tables as text alignment so 
+        # data = re.sub(pattern="(?s)(?i)<TABLE((?!Item).)*?</TABLE>", repl='', string=data)
+        data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
 
         # Regex to find <DOCUMENT> tags
         doc_start_pattern = re.compile(r'<DOCUMENT>')
@@ -106,18 +152,15 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Form map of where the items are located
         pos_dat = test_df.sort_values('start', ascending=True)
 
-        # Set item as the dataframe index
-        pos_dat.set_index('item', inplace=True)
-
         # Parsing validity checks, bypass this file if improper parse
         error_info = ''
-        if 'item1a' not in pos_dat.index:
+        if 'item1a' not in pos_dat['item'].values:
             error_info = error_info + '1A '
-        if 'item1b' not in pos_dat.index and 'item2' not in pos_dat.index:
+        if 'item1b' not in pos_dat['item'].values and 'item2' not in pos_dat['item'].values:
             error_info = error_info + '1B/2 '
-        if 'item7' not in pos_dat.index:
+        if 'item7' not in pos_dat['item'].values:
             error_info = error_info + '7 '
-        if 'item8' not in pos_dat.index and 'item9' not in pos_dat.index and 'item9a' not in pos_dat.index and 'item9b' not in pos_dat.index:
+        if 'item8' not in pos_dat['item'].values and 'item9' not in pos_dat['item'].values and 'item9a' not in pos_dat['item'].values and 'item9b' not in pos_dat['item'].values:
             error_info = error_info + '8/9/9a/9b '
             
         if error_info != '':
@@ -126,6 +169,17 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write(error_info)
                 output.write(pos_dat.to_string())
             return
+
+        # Combine duplicate rows to handle submissions with more than one page
+        last_item = ''
+        for index, row in pos_dat.iterrows():
+            if row['item'] == last_item:
+                pos_dat.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+
+        # Set item as the dataframe index
+        pos_dat.set_index('item', inplace=True)
 
         # If more than 2 item1a rows, get rid of extra
         if len(pos_dat.loc['item1a']) > 2:  # df.shape[0]
