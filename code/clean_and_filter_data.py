@@ -8,6 +8,14 @@ import re
 import shutil
 import ProjectDirectory as directory
 
+
+def extract_raw(in_document, pos_map, item): 
+    item_raw = in_document[pos_map['start'].loc[item]+1:pos_map['end'].loc[item]]
+    item_content = BeautifulSoup(item_raw, 'lxml')
+    item_text = re.sub(r'\s+\d+\s+Table of Contents', ' ', item_content.get_text(' '), flags=re.IGNORECASE)
+    item_text = re.sub(r'\n\s*\d*\s*\n', '', item_text)
+    return item_text
+    
 def clean_filing(input_filename, filing_type, output_filename):
     """
     Cleans a 10-K or 10-Q filing. All arguments take strings as input
@@ -15,7 +23,9 @@ def clean_filing(input_filename, filing_type, output_filename):
     filing_type: either 10-K or 10-Q
     outuput_filename: name of output file
     """
-    
+
+    SECTION_MARKER = 'Â°'
+
     # open file
     with open (input_filename, 'r', encoding='utf-8') as f:
         data = f.read()
@@ -33,8 +43,9 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         # Remove tables that do not contain the word 'item.' This fixes docs that incorrectly
         # use tables as page headers.
+        data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A).*?>", repl='', string=data)
         data = re.sub(pattern="(?s)(?i)<TABLE((?!Item).)*?</TABLE>", repl='', string=data)
-        data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN).*?>", repl='', string=data)
+        data = re.sub(pattern='(?s)(?i)(&#160;|&#32;|&nbsp;|&#xa0;)', repl=' ', string=data)
 
         # Regex to find <DOCUMENT> tags
         doc_start_pattern = re.compile(r'<DOCUMENT>')
@@ -69,7 +80,7 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
         # document['10-K'] = re.sub(r'>(\s|&#32;|&#160;|Part I, |Part II, )*?(I?TEM)(?:<.*?>)?(\s|&#32;|&#160;|&nbsp;)+(<.*?>)?(1\(?A\)?|1\(?B\)?|2|7\(?A\)?|7|8)(\.{0,1})', '>item \\5\\6', document['10-K'], 0, re.IGNORECASE)
-        document['10-K'] = re.sub(r'>(\s|&#32;|&#160;|Part I, |Part II, )*?(I?TEM)(?:<.*?>)?(\s|&#32;|&#160;|&nbsp;)+(<.*?>)?(1|2|7|8|9)(?:\&#160;)?\(?(A|B)?\)?(\.{0,1})', '>item \\5\\6\\7', document['10-K'], 0, re.IGNORECASE)
+        document['10-K'] = re.sub(r'>(\s|Part I, |Part I. |Part II, |Part II. )*?(I?TEM)(?:<.*?>)?(\s)+(<.*?>)?(1|2|7|8|9)(?:\s)?\(?(A|B)?\)?(\.{0,1})', '>item \\5\\6\\7', document['10-K'], 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(1\(?A\)?|1\(?B\)?|2|7\(?A\)?|7|8|9\(?A\)?|9\(?B\)?|9)\.{0,1}', re.IGNORECASE)
         
         # Use finditer to match the regex
@@ -92,16 +103,13 @@ def clean_filing(input_filename, filing_type, output_filename):
         test_df.replace(r'\.','',regex=True,inplace=True)
         test_df.replace(r' |>|\(|\)|\n','',regex=True,inplace=True)
 
-        # Drop duplicates Rather than drop all but the last item, we should implement the following logic:
-        # If there are duplicates of a given item, 
-        #   a) remove the first entry if size < 100 (probably the index entry)
-        #   b) remove all duplicates except the first item. This will aggregate all items of a given type
-        pos_dat = test_df.sort_values('start', ascending=True).drop_duplicates(subset=['item'], keep='last')
+        # Form map of where the items are located
+        pos_dat = test_df.sort_values('start', ascending=True)
 
         # Set item as the dataframe index
         pos_dat.set_index('item', inplace=True)
 
-        # Parsin validity checks, bypass this file if improper parse
+        # Parsing validity checks, bypass this file if improper parse
         error_info = ''
         if 'item1a' not in pos_dat.index:
             error_info = error_info + '1A '
@@ -109,8 +117,6 @@ def clean_filing(input_filename, filing_type, output_filename):
             error_info = error_info + '1B/2 '
         if 'item7' not in pos_dat.index:
             error_info = error_info + '7 '
-        if 'item7a' not in pos_dat.index:
-            error_info = error_info + '7A '
         if 'item8' not in pos_dat.index and 'item9' not in pos_dat.index and 'item9a' not in pos_dat.index and 'item9b' not in pos_dat.index:
             error_info = error_info + '8/9/9a/9b '
             
@@ -121,35 +127,26 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write(pos_dat.to_string())
             return
 
-        # Get Item 1a
-        try:
-            item_1a_raw = document['10-K'][pos_dat['start'].loc['item1a']+1:pos_dat['start'].loc['item1b']]
-        except:
-            item_1a_raw = document['10-K'][pos_dat['start'].loc['item1a']+1:pos_dat['start'].loc['item2']]
+        # If more than 2 item1a rows, get rid of extra
+        if len(pos_dat.loc['item1a']) > 2:  # df.shape[0]
+            pos_dat = pos_dat.loc[pos_dat.start < pos_dat.loc['item1a']['start'][2]]
 
-        # Get Item 7
-        try:
-            item_7_raw = document['10-K'][pos_dat['start'].loc['item7']+1:pos_dat['start'].loc['item7a']]
-            # Get Item 7a
-            item_7a_raw = document['10-K'][pos_dat['start'].loc['item7a']+1:pos_dat['start'].loc['item8']]
-        except:
-            # No Item 7a seen
-            item_7_raw = document['10-K'][pos_dat['start'].loc['item7']+1:pos_dat['start'].loc['item8']]
+        # Set ending address of the section, and add a length column
+        pos_dat['end'] = np.append(pos_dat.iloc[1:,0].values, [ 0 ])
+        pos_dat['length'] = pos_dat['end'] - pos_dat['start']
 
-        ### First convert the raw text we have to exrtacted to BeautifulSoup object 
-        item_1a_content = BeautifulSoup(item_1a_raw, 'lxml')
-        item_7_content = BeautifulSoup(item_7_raw, 'lxml')
-        item_7a_content = BeautifulSoup(item_7a_raw, 'lxml')
+        # Drop the shorter of each set of rows
+        pos_dat = pos_dat.sort_values('length', ascending=True)
+        pos_dat = pos_dat.loc[~pos_dat.index.duplicated(keep='last')]
+        pos_dat = pos_dat.sort_values('start', ascending=True)
 
-        item_1a_text = re.sub(r'\s+\d+\s+Table of Contents', ' ', item_1a_content.get_text(' '), flags=re.IGNORECASE)
-        item_1a_text = re.sub(r'\n\s*\d*\s*\n', '', item_1a_text)
-        item_7_text =  re.sub(r'\s+\d+\s+Table of Contents', ' ', item_7_content.get_text(' '), flags=re.IGNORECASE)
-        item_7_text = re.sub(r'\n\s*\d*\s*\n', '', item_7_text)
-        item_7a_text = re.sub(r'\s+\d+\s+Table of Contents', ' ', item_7a_content.get_text(' '), flags=re.IGNORECASE)
-        item_7a_text = re.sub(r'\n\s*\d*\s*\n', '', item_7a_text)
+        # Use Beautiful Soup to extract text from the raw data 
+        aggregate_text = SECTION_MARKER + extract_raw(document['10-K'], pos_dat, 'item1a')
+        aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(document['10-K'], pos_dat, 'item7')
 
-        # Tag each section for later analysis
-        aggregate_text = 'Â°' + item_1a_text + 'Â°' + item_7_text + 'Â°' + item_7a_text
+        # If Item 7A is not present, assume issuer has lumped 7 and 7A together
+        if 'item7a' in pos_dat.index:
+            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(document['10-K'], pos_dat, 'item7a')
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             output.write(aggregate_text)
