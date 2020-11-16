@@ -181,7 +181,8 @@ def clean_filing(input_filename, filing_type, output_filename):
                 return
 
         # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
-        document['10-K'] = re.sub(r'>(\s|Part I+(?:\.|,|\s))*?(I?TEM)S?(?:<.*?>)?(\s)+(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
+        # document['10-K'] = re.sub(r'>(\s|Part I+(?:\.|\||,|\s))*?(I?TEM)S?(?:<.*?>)?(\s)+(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
+        document['10-K'] = re.sub(r'>\s*?(Part I+(?:\.|\||,|\s)*?)?(I?TEM)S?(?:<.*?>)?(\s)*(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)(A|B)?\.', re.IGNORECASE)
         
         # Use finditer to match the regex
