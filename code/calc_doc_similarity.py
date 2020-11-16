@@ -1,6 +1,3 @@
-# To add a new cell, type '# %%'
-# To add a new markdown cell, type '# %% [markdown]'
-# %%
 import pandas as pd
 import numpy as np
 import os
@@ -22,7 +19,6 @@ from sklearn.feature_extraction.text import CountVectorizer
 
 # **Import stopwords from LoughranMcDonald Master Dictionary**
 
-# %%
 def import_master_dict_stopwords(stopwords_file_path = os.path.join(directory.get_project_dir(), 'master-dict', 'StopWords_Generic.txt')):
 #     os.chdir(stopwords_file_dir)
 #     stopwords = pd.read_csv('StopWords_Generic.txt', header=None)
@@ -31,7 +27,6 @@ def import_master_dict_stopwords(stopwords_file_path = os.path.join(directory.ge
     return stopwords
 
 
-# %%
 def preprocess_filing(text, stopwords=True, stemming=False):
     
     # remove punctuations
@@ -52,7 +47,6 @@ def preprocess_filing(text, stopwords=True, stemming=False):
     return tokens
 
 
-# %%
 def vectorize_and_preprocess_filings(filings_list):
     """vectorizes and preprocesses filings for each company"""
     
@@ -62,14 +56,11 @@ def vectorize_and_preprocess_filings(filings_list):
 
 
 # # Calculating Similarity
-
-# %%
 def calculate_consine_similarity(a, b):
     cos_sim = np.dot(a,b) / ( np.linalg.norm(a) * np.linalg.norm(b) )
     return cos_sim
 
 
-# %%
 project_dir = directory.get_project_dir()
 company_dir_list = os.listdir(os.chdir(os.path.join(project_dir, 'sec-filings-downloaded')))
 
