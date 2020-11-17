@@ -144,12 +144,14 @@ def download_filings(cik_num_list, from_date='2016-01-01'):
                     get_year = filing_date[0:4]
                     get_month = int(filing_date[5:7])
 
-                    if get_month >= 1 and get_month <= 5:
+                    if get_month >= 1 and get_month <= 3:
                         filing_quarter = 'Q1'
-                    elif get_month >= 6 and get_month <= 8:
+                    elif get_month >= 4 and get_month <= 6:
                         filing_quarter = 'Q2'
-                    else:
+                    elif get_month >= 7 and get_month <= 9:
                         filing_quarter = 'Q3'
+                    else:
+                        filing_quarter = 'Q4'
 
                     filename = '../' + row['filing_type'] + '/' + get_year + '/' + filing_quarter + '/' + url[url.rfind('/')+1:]
                     print(f'Moving: {filename} to {filing_name}')
