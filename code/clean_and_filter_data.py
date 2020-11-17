@@ -449,9 +449,9 @@ def clean_all_filings():
     for dirName, subdirList, fileList in os.walk(rootDir):
         os.chdir(dirName)
         print('Found directory: %s' % dirName)
-        if '2020' not in dirName:
-            print('Skipped')
-            continue
+        #if '2020' not in dirName:
+        #    print('Skipped')
+        #    continue
 
         for fName in fileList:
             # Skip if already cleaned or not a txt file
