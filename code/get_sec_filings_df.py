@@ -9,7 +9,7 @@ import ProjectDirectory as directory
 import re
 
 pd.options.mode.chained_assignment = None
-DOWNLOAD_FROM_EDGAR = False
+DOWNLOAD_FROM_EDGAR = True
 
 # ## generate df with all companies and URLs
 project_dir = directory.get_project_dir()
