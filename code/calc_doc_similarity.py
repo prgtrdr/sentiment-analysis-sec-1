@@ -14,7 +14,6 @@ from nltk.stem import PorterStemmer
 # to vectorize filing
 from sklearn.feature_extraction.text import CountVectorizer
 
-
 # # Preprocessing
 
 # **Import stopwords from LoughranMcDonald Master Dictionary**
@@ -108,11 +107,6 @@ for company in company_dir_list:
     max_ten_q_quarter_year = max(ten_q_dict, key=ten_q_dict.get)
     year_before_max_ten_q = max_ten_q_quarter_year[0:3]+str(int(filing_year)-1)
 
-    # build filename for previous 10Q (not year earlier)
-    qtrs = ['Q1', 'Q2', 'Q3' ]
-    max_ten_q_quarter = max_10_q_quarter_year[0:3]+str(int(filing_year)-1)
-    qtr_before_max_10_q = max_10_q_quarter_year[0:3] == else 
-
     with open(ten_q_dict[max_ten_q_quarter_year]) as file:
         latest_ten_q = file.readline()
     with open(ten_q_dict[year_before_max_ten_q]) as file:
@@ -130,16 +124,6 @@ for company in company_dir_list:
 #     except BaseException as e:
 #         print('{}: {}'.format(company, e))
 
-
-# %%
 df_ten_k_results
 
-
-# %%
 df_ten_q_results
-
-
-# %%
-
-
-

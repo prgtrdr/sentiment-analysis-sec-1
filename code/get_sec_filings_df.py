@@ -7,7 +7,9 @@ import requests
 from tqdm import tqdm
 import ProjectDirectory as directory
 import re
+
 pd.options.mode.chained_assignment = None
+DOWNLOAD_FROM_EDGAR = False
 
 # ## generate df with all companies and URLs
 project_dir = directory.get_project_dir()
@@ -32,7 +34,8 @@ for i in range(len(table_list)):
 df.columns= ['cik', 'company_name', 'filing_type', 'filing_date', 'url', 'url2']
 
 # Fix up company names
-df['company_name'] = [re.sub(r'/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
+# df['company_name'] = [re.sub(r'/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
+df['company_name'] = [re.sub(r'\s*\\.*|/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
 
 # ## Check if dataframe correctly generated
 count_list = []
@@ -87,7 +90,7 @@ company_name_search(df_cik, companies_list)
 cik_list = get_cik_from_company_name(df_cik)
 
 # ## download data
-def download_filings(cik_num_list, from_date='2018-01-01'):
+def download_filings(cik_num_list, from_date='2016-01-01'):
     """Function to filter the appropriate filings and download them in the folder"""
     
     project_dir = directory.get_project_dir()
@@ -127,11 +130,38 @@ def download_filings(cik_num_list, from_date='2018-01-01'):
             if os.path.isfile(filing_name):
                 print('{} file already exists'.format(filing_name))
             else:
-                print('Downloading: {}'.format(filing_name))
-                response = requests.get(url, stream=True, timeout=30)
-                with open('{}'.format(filing_name), 'wb') as handle:
-                    for data in tqdm(response.iter_content()):
-                        handle.write(data)    
+                if DOWNLOAD_FROM_EDGAR:
+                    print('Downloading: {}'.format(filing_name))
+                    response = requests.get(url, stream=True, timeout=30)
+                    with open('{}'.format(filing_name), 'wb') as handle:
+                        for data in tqdm(response.iter_content()):
+                            handle.write(data)
+                else:
+                    # Instead of downloading here, we'll move from existing directory. This should be a command line parameter
+                    # Parse the filing date as '2013-03-04'
+                    filing_date = row['filing_date']
+                    get_date = filing_date[0:10]
+                    get_year = filing_date[0:4]
+                    get_month = int(filing_date[5:7])
+
+                    if get_month >= 1 and get_month <= 5:
+                        filing_quarter = 'Q1'
+                    elif get_month >= 6 and get_month <= 8:
+                        filing_quarter = 'Q2'
+                    else:
+                        filing_quarter = 'Q3'
+
+                    filename = '../' + row['filing_type'] + '/' + get_year + '/' + filing_quarter + '/' + url[url.rfind('/')+1:]
+                    print(f'Moving: {filename} to {filing_name}')
+                    try:
+                        os.rename(filename, filing_name)
+                        cleaned_filename = '../' + row['filing_type'] + '/' + get_year + '/' + filing_quarter + '/' + 'cleaned_' + url[url.rfind('/')+1:]
+                        cleaned_filing_name = 'cleaned_' + filing_name
+                        print(f'Moving: {cleaned_filename} to {cleaned_filing_name}')
+                        os.rename(cleaned_filename, cleaned_filing_name)
+                    except:
+                        print('Not found. Skipped.')
+                        continue
 
 # ### ↓ Automated download of filings. If the filing exists in the directory, the download will skip and move on the the next filing
 download_filings(cik_list)
