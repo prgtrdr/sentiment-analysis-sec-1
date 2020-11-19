@@ -61,6 +61,9 @@ items_10Q = [
 SECTION_MARKER = 'Â°'
 MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error logging
 USE_EDGAR_FILENAME = False
+CLEAN_10K = True
+CLEAN_10Q = False
+
 
 # Utility functions
 
@@ -135,19 +138,21 @@ def clean_filing(input_filename, filing_type, output_filename):
     
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
-        data = re.sub(r'<DOCUMENT>\n<TYPE>GRAPHIC.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>ZIP.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>EXCEL.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A )
-        data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>GRAPHIC.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>ZIP.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>EXCEL.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
         #data = re.sub(r'<XBRL.*?</XBRL>', '', data, flags=re.S | re.A | re.IGNORECASE )
 
         # Delete certain HTML that may be embedded in words like ITEM
         data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A|B|U).*?>", repl='', string=data)
-        # Replace special characters with space
-        data = re.sub(pattern='(?s)(?i)(&#160;|&#32;|&nbsp;|&#xa0;|&#8211;|&#8212;|_{3,})', repl=' ', string=data)
+        
+        # Replaces all Unicode strings and special characters like nbsp
+        data = re.sub(pattern=r'&(.{2,6});', repl=' ', string=data)
 
         # Intelligently remove tables. Some filers use tables as text alignment so keep the ones with < 10% numeric
         data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
@@ -202,7 +207,8 @@ def clean_filing(input_filename, filing_type, output_filename):
         test_df['item'] = test_df.item.str.lower()
 
         # Get rid of unnesesary charcters from the dataframe
-        test_df.replace(r'&#160;|&#32;|&nbsp;',' ',regex=True,inplace=True)
+        # Replace all Unicode strings with a space
+        test_df.replace(r'&(.{2,6});', ' ', regex=True,inplace=True)
         test_df.replace(r'\.','',regex=True,inplace=True)
         test_df.replace(r' |>|\(|\)|\n','',regex=True,inplace=True)
         
@@ -307,35 +313,40 @@ def clean_filing(input_filename, filing_type, output_filename):
             data_processed = search_10k.group(0)
         
             # delete formatting text used to identify 10-K section as its not relevant
-            data_processed = re.sub(pattern="(?i)(<TYPE>).*?(?=<)", repl='', string=data_processed)
+            data_processed = re.sub(pattern="(<TYPE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
 
             # Five more formatting tags are deleted
-            data_processed = re.sub(pattern="(?i)(<SEQUENCE>).*?(?=<)", repl='', string=data_processed)
-            data_processed = re.sub(pattern="(?i)(<FILENAME>).*?(?=<)", repl='', string=data_processed)
-            data_processed = re.sub(pattern="(?i)(<DESCRIPTION>).*?(?=<)", repl='', string=data_processed)
-            data_processed = re.sub(pattern="(?s)(?i)<head>.*?</head>", repl='', string=data_processed)
+            data_processed = re.sub(pattern="(<SEQUENCE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
+            data_processed = re.sub(pattern="(<FILENAME>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
+            data_processed = re.sub(pattern="(<DESCRIPTION>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
+            data_processed = re.sub(pattern="<head>.*?</head>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
+            data_processed = re.sub(pattern="<ix:header.*?</ix:header>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
 
-            reg_tables = re.findall(r'(?!.*Item)<TABLE.*?</TABLE>', data_processed, re.S | re.A | re.IGNORECASE )
+            reg_tables = re.findall(r'<TABLE.*?</TABLE>', data_processed, re.S | re.A | re.IGNORECASE )
+
             # Add up the sizes of the table sections
             table_len = len(''.join(reg_tables))
             num_tables = len(reg_tables)
             print(f'TABLES number={num_tables:,}, length={table_len:,}')
 
-            data_processed = re.sub(pattern="(?s)(?i)<(table)^(?!.*Item).*?(</table>)", repl='', string=data_processed)
-
-            # Removes all HTML tags
-            data_processed = re.sub(pattern="(?s)<.*?>", repl=" ", string=data_processed, count=0)
-
-            # Replaces all Unicode strings
-            data_processed = re.sub(pattern=r'&(.{2,6});', repl=" ", string=data_processed, count=0)
-
-            # Replaces multiple spaces with a single space
-            data_processed = re.sub(pattern="(?s) +", repl=" ", string=data_processed, count=0)
+            data_processed = re.sub(r'<TABLE((?!>Item).)*?</TABLE>', '', data_processed, flags=re.S | re.I)
 
             # Tags each section of the financial statement with prefix '°Item' for future analysis
-            data_processed = re.sub(pattern="(?s)(?i)(?m)> +Item|>Item|^Item", repl=">Â°Item", string=data_processed, count=0)
+            data_processed = re.sub(r'> +Item|>Item|^Item', '>Â°Item', data_processed, flags=re.DOTALL | re.IGNORECASE | re.MULTILINE)
             
-            with open(output_filename, 'w') as output:
+            # Removes all HTML tags
+            data_processed = re.sub(r"(?s)<.*?>", ' ', string=data_processed)
+
+            # Replaces all Unicode strings
+            data_processed = re.sub(pattern=r'&(.{2,6});', repl=" ", string=data_processed)
+
+            # Replaces multiple spaces with a single space
+            data_processed = re.sub(pattern=r"(?s) +", repl=" ", string=data_processed)
+
+            # Get rid of blank lines (with or without whitespace)
+            data_processed = re.sub(r'^\s*$\n', repl='', string=data_processed, flags=re.M)
+            
+            with open(output_filename, 'w', encoding='utf-8') as output:
                 output.write(data_processed)
                 
         except BaseException as e:
@@ -388,7 +399,7 @@ def clean_all_filings():
                 if file.endswith('10-K'): filing_type = '10-K'
                 else: filing_type = '10-Q'
                 
-                if file.endswith('10-K') or file.endswith('10-Q'):
+                if (CLEAN_10K and file.endswith('10-K')) or (CLEAN_10Q and file.endswith('10-Q')):
                     clean_filing(input_filename=file, filing_type=filing_type, output_filename='cleaned_' + str(file))
                     print('{} filing cleaned'.format(file))
 
@@ -452,11 +463,11 @@ def move_10k_10q_to_folder():
                     shutil.move(os.path.join(company_dir, file), os.path.join(cleaned_files_dir, file))
                     print('{} moved to cleaned files folder'.format(file))
 
-clean_all_filings()
+#clean_all_filings()
 
-# rename_10_Q_filings()
+#rename_10_Q_filings()
 
-# move_10k_10q_to_folder()
+move_10k_10q_to_folder()
 
 
 
