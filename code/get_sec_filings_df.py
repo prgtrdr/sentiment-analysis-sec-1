@@ -34,7 +34,6 @@ for i in range(len(table_list)):
 df.columns= ['cik', 'company_name', 'filing_type', 'filing_date', 'url', 'url2']
 
 # Fix up company names
-# df['company_name'] = [re.sub(r'/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
 df['company_name'] = [re.sub(r'\s*\\.*|/.*|[\.\,]*', '', str(x)) for x in df['company_name']]
 
 # ## Check if dataframe correctly generated
@@ -81,13 +80,12 @@ def get_company_name_from_cik(df, cik_list):
         company_list.append(company_series.values[0])
     return company_list
 
-companies_list = ['apple inc', 'tesla', 'netflix', 
-                  'amazon com inc', 'microsoft', 'facebook']
+companies_list = ['ADT Inc.']
 
 company_name_search(df_cik, companies_list)
 
-# cik_list = get_cik_from_company_name(df_cik, companies_list)
-cik_list = get_cik_from_company_name(df_cik)
+cik_list = get_cik_from_company_name(df_cik, companies_list)    # Just get these companies' data
+# cik_list = get_cik_from_company_name(df_cik)  # Get all company data
 
 # ## download data
 def download_filings(cik_num_list, from_date='2016-01-01'):

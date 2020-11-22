@@ -9,6 +9,9 @@ import shutil
 import ProjectDirectory as directory
 from io import StringIO
 from html.parser import HTMLParser
+# import ftfy
+import html
+# import xml.sax.saxutils as saxutils
 
 # List of items_10K found in filings, in order of appearance.
 items_10K = [
@@ -135,7 +138,6 @@ def clean_filing(input_filename, filing_type, output_filename):
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
 
-    
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
         data = re.sub(r'<DOCUMENT>\n<TYPE>GRAPHIC.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
@@ -149,10 +151,37 @@ def clean_filing(input_filename, filing_type, output_filename):
         #data = re.sub(r'<XBRL.*?</XBRL>', '', data, flags=re.S | re.A | re.IGNORECASE )
 
         # Delete certain HTML that may be embedded in words like ITEM
-        data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A|B|U).*?>", repl='', string=data)
+        data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A|B|U|I).*?>", repl='', string=data)
         
-        # Replaces all Unicode strings and special characters like nbsp
-        data = re.sub(pattern=r'&(.{2,6});', repl=' ', string=data)
+        # Replace Unicode strings and special characters like nbsp
+        # data = re.sub(pattern=r'(?s)(?i)(&#160;|&#32;|&nbsp;|&#xa0;)', repl=' ', string=data)
+        # data = re.sub(pattern=r"(?s)(?i)(&#x2019;|&#8217;)", repl="'", string=data)
+        # data = re.sub(pattern=r"(?s)(?i)(&#8211;|&#8212;)", repl="-", string=data)
+        # data = re.sub(pattern=r"(?s)(?i)(&#8220;|&#8221;)", repl='"', string=data)
+        # data = re.sub(pattern=r"(?s)(?i)&amp;", repl='&', string=data)
+        # data = re.sub(pattern=r'&(.{2,6});', repl=' ', string=data)
+
+        # data = ftfy.fix_text(data, fix_entities=True, max_decode_length=10**7)
+        # repl_dict = {
+        #     "&#160;" : " ",
+        #     "&#32;" : " ",
+        #     "&nbsp;" : " ",
+        #     "&#xa0;" : " ",
+        #     "&#x2019;" : "'",
+        #     "&#8217;" : "'",
+        #     "&#8211;" : "-",
+        #     "&#8212;" : "-",
+        #     "&#8220;" : '"',
+        #     "&#8221;" : '"'          
+        # }
+        # data = saxutils.unescape(data, repl_dict)
+
+        data = html.unescape(data)    # This function doesn't convert all the characters as needed, like xa0 and apostrophes
+        data = data.replace('\xa0', ' ')
+        data = data.replace('\u200b', ' ')
+        data = data.replace("’", "'")
+        data = data.replace('“', '"')
+        data = data.replace('”', '"')
 
         # Intelligently remove tables. Some filers use tables as text alignment so keep the ones with < 10% numeric
         data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
@@ -359,7 +388,7 @@ def clean_all_filings():
     
     project_dir = directory.get_project_dir()
 
-    if USE_EDGAR_FILENAME:
+    if USE_EDGAR_FILENAME:      # Use sec-utils download directory structure /10-K/year/quarter
         rootDir = os.path.join(project_dir, 'sec-filings-downloaded')
         for dirName, subdirList, fileList in os.walk(rootDir):
             os.chdir(dirName)
@@ -370,7 +399,7 @@ def clean_all_filings():
 
             for fName in fileList:
                 # Skip if already cleaned or not a txt file
-                if fName.startswith('cleaned') or fName.startswith('error') or not fName.endswith('txt') or glob.glob('*cleaned_' + fName): 
+                if 'cleaned' in fName or not fName.endswith('txt'): 
                     continue
                 
                 if '10-K' in dirName:
@@ -386,14 +415,18 @@ def clean_all_filings():
         company_list = os.listdir(os.path.join(project_dir, 'sec-filings-downloaded'))  
 
         for company in company_list:
+            # DEBUGGING PURPOSES *************************
+            # if 'INTERNATIONAL BUSINESS' not in company:
+            #     continue
+
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
-            
+
             print('***Cleaning: {}***'.format(company))
             for file in os.listdir():  # iterate through all files in the respective company directory
                 
                 # cleaning files
-                if file.startswith('cleaned'): 
+                if 'cleaned' in file: 
                     continue
                 
                 if file.endswith('10-K'): filing_type = '10-K'
@@ -463,9 +496,9 @@ def move_10k_10q_to_folder():
                     shutil.move(os.path.join(company_dir, file), os.path.join(cleaned_files_dir, file))
                     print('{} moved to cleaned files folder'.format(file))
 
-#clean_all_filings()
+clean_all_filings()
 
-#rename_10_Q_filings()
+rename_10_Q_filings()
 
 move_10k_10q_to_folder()
 
