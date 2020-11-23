@@ -64,8 +64,8 @@ items_10Q = [
 SECTION_MARKER = 'Â°'
 MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error logging
 USE_EDGAR_FILENAME = False
-CLEAN_10K = True
-CLEAN_10Q = False
+CLEAN_10K = False
+CLEAN_10Q = True
 
 
 # Utility functions
@@ -336,10 +336,185 @@ def clean_filing(input_filename, filing_type, output_filename):
             output.write(aggregate_text)
     else:
         # Process 10Q
-        # get text in between the appropriate 10-K tags
-        search_10k = re.search("(?s)(?m)<TYPE>{}.*?(</TEXT>)".format(filing_type), data)
+        # Step 1. Remove all the encoded sections
+        data = re.sub(r'<DOCUMENT>\n<TYPE>GRAPHIC.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>ZIP.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>EXCEL.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
+        #data = re.sub(r'<XBRL.*?</XBRL>', '', data, flags=re.S | re.A | re.IGNORECASE )
+
+        # Delete certain HTML that may be embedded in words like ITEM
+        data = re.sub(pattern="(?s)(?i)</?(FONT|SPAN|A|B|U|I).*?>", repl='', string=data)
+        
+        data = html.unescape(data)    # This function doesn't convert all the characters as needed, like xa0 and apostrophes
+        data = data.replace('\xa0', ' ')
+        data = data.replace('\u200b', ' ')
+        data = data.replace("’", "'")
+        data = data.replace('“', '"')
+        data = data.replace('”', '"')
+
+        # Intelligently remove tables. Some filers use tables as text alignment so keep the ones with < 10% numeric
+        data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
+
+        # Extract text between PART I and PART II. Will probably get 2 matches
+        part_list = re.findall(r'>PART I|1[^I1].*?FINANCIAL INFORMATION.*?>PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+
+        # Regex to find <DOCUMENT> tags
+        doc_start_pattern = re.compile(r'<DOCUMENT>')
+        doc_end_pattern = re.compile(r'</DOCUMENT>')
+        # Regex to find <TYPE> tag prceeding any characters, terminating at new line
+        type_pattern = re.compile(r'<TYPE>[^\n]+')
+
+        doc_start_is = [x.end() for x in doc_start_pattern.finditer(data)]
+        doc_end_is = [x.start() for x in doc_end_pattern.finditer(data)]
+        doc_types = [x[len('<TYPE>'):] for x in type_pattern.findall(data)]
+
+        # Create a Dictionary for the 10-K
+        # 
+        # In the code below, we create a dictionary which has the key `10-K` and as value the contents of the `10-K` section
+        # found above. To do this, we will create a loop, to go through all the sections found above, and if the section
+        # type is `10-K` then save it to the dictionary. Use the indices in  `doc_start_is` and `doc_end_is`to slice the
+        # `data` file.
+        document = {}
+
+        # Create a loop to go through each section type and save only the first 10-K section in the dictionary
+        for doc_type, doc_start, doc_end in zip(doc_types, doc_start_is, doc_end_is):
+            if doc_type == '10-K':
+                document[doc_type] = data[doc_start:doc_end]
+                break
+
+        # Validity check
+        if '10-K' not in document:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write('Could not find document[10-K]\n' + '\n' + doc_start_is + '\n' + doc_end_is + '\n' +doc_types)
+                return
+
+        # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
+        document['10-K'] = re.sub(r'>\s*?(Part I+(?:\.|\||,|\s)*?)?(I?TEM)S?(?:<.*?>)?(\s)*(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
+        regex = re.compile(r'>item\s(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)(A|B)?\.', re.IGNORECASE)
+        
+        # Use finditer to match the regex
+        matches = regex.finditer(document['10-K'])
+
+        # Create the dataframe
+        test_df = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
+        
+        if len(test_df.index) == 0:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\nNo Item matches found')
+                return
+
+        test_df.columns = ['item', 'start', 'end']
+        test_df['item'] = test_df.item.str.lower()
+
+        # Get rid of unnesesary charcters from the dataframe
+        # Replace all Unicode strings with a space
+        test_df.replace(r'&(.{2,6});', ' ', regex=True,inplace=True)
+        test_df.replace(r'\.','',regex=True,inplace=True)
+        test_df.replace(r' |>|\(|\)|\n','',regex=True,inplace=True)
+        
+        # fix for 0000731012-16-000120
+        test_df.replace(r'itemi','item1',regex=True,inplace=True)
+
+        # Form map of where the items are located
+        pos_dat = test_df.sort_values('start', ascending=True)
+
+        # Parsing validity checks, bypass this file if improper parse
+        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+        if 'item1' not in pos_dat['item'].values:
+            error_info = error_info + '1 '
+            error_info = error_info + 'not found\n'
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write(pos_dat.to_string())
+            return
+
+        # Combine duplicate rows to handle submissions with more than one page
+        last_item = ''
+        for index, row in pos_dat.iterrows():
+            if row['item'] == last_item:
+                pos_dat.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+
+        pos_dat = pos_dat.reset_index(drop=True)
+
+        # Get rid of out-of-sequence rows
+        drop_rows = []
+        error_count = 0
+        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+        for i in range(1, pos_dat.shape[0]):
+            this_item = items_10K.index( pos_dat.iloc[i]['item'] )
+            if this_item == 0:
+                continue
+            prev_item = items_10K.index( pos_dat.iloc[i-1]['item'] )
+            if i+1 == pos_dat.shape[0]:
+                next_item = len(items_10K)+1
+            else:
+                next_item = items_10K.index( pos_dat.iloc[i+1]['item'] )
+                if next_item == 0 and (this_item > prev_item): 
+                    continue
+            if (this_item <= prev_item) or ((next_item > prev_item) and (this_item > next_item)):
+                error_count += 1
+                error_info = error_info + f'Sequence err. Index: {i}, Prev: {items_10K[prev_item]}, This: {items_10K[this_item]}, Next: {"END" if next_item > len(items_10K) else items_10K[next_item]}\n' + \
+                    document['10-K'][pos_dat.iloc[i]['start']-256: pos_dat.iloc[i]['start']+256 ].replace('\n', '') + '\n\n'
+                pos_dat.at[i, 'item'] = pos_dat.iloc[i-1]['item']
+                drop_rows.append(i)
+
+        pos_dat.drop(drop_rows, inplace = True)
+
+        # Write sequnce fixes to output file. We can make this optional at some point.    
+        if error_count > MAX_SEQ_ERRORS:
+            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write('\n' + '*' * 66 + '\n' + pos_dat.to_string())
+
+
+        # Set ending address of the section, and add a length column. To calculate length, strip HTML
+        pos_dat['end'] = np.append(pos_dat.iloc[1:,1].values, [ 0 ])
+        len_vals = []
+        for index, row in pos_dat.iterrows():
+            stripped_data = strip_tags(document['10-K'][row['start']:row['end']])
+            len_vals.append(len(stripped_data))
+        pos_dat.insert(3, 'length', len_vals)
+
+        # Drop the shorter of each set of rows. 
+        #   1. Sort by appearance in the filing
+        #   2. Iterate through, saving each occurrence of item1.
+        #   3. Upon finding item1, compare length to previous item1.
+        #   4. If longer, delete all previous rows. If shorter, delete all following rown, inclusive.
+        pos_dat = pos_dat.sort_values('start', ascending=True)
+        prev_item1_len = 0
+        for index, row in pos_dat.iterrows():
+            if row['item'] == 'item1':
+                if row['length'] > prev_item1_len:
+                    rows_to_drop = pos_dat[pos_dat.index < index].index
+                    pos_dat.drop(rows_to_drop, inplace=True)
+                    prev_item1_len = row['length']
+                else:
+                    rows_to_drop = pos_dat[pos_dat.index >= index].index
+                    pos_dat.drop(rows_to_drop, inplace=True)
+                    break
+
+        # Set item as the dataframe index
+        pos_dat.set_index('item', inplace=True)
+
+        # Use Beautiful Soup to extract text from the raw data 
+        aggregate_text = ''
+        for index, row in pos_dat.iterrows():
+            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(document['10-K'], pos_dat, index)
+
+        with open(output_filename, 'w', encoding='utf-8') as output:
+            output.write(aggregate_text)
+
+"""         # get text in between the appropriate 10-Q tags
+        search_10q = re.search("(?s)(?m)<TYPE>{}.*?(</TEXT>)".format(filing_type), data)
         try:
-            data_processed = search_10k.group(0)
+            data_processed = search_10q.group(0)
         
             # delete formatting text used to identify 10-K section as its not relevant
             data_processed = re.sub(pattern="(<TYPE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
@@ -381,7 +556,9 @@ def clean_filing(input_filename, filing_type, output_filename):
         except BaseException as e:
             print('{} could not be cleaned. Exception: {}'.format(input_filename, e))
             pass
+ """
 
+ 
 def clean_all_filings():
     """Clean all filings in sec-filings directory"""
     print("cleaning...")

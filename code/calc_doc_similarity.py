@@ -81,6 +81,9 @@ def preprocess_filing(text, stopwords=True, stemming=False):
     punctuation_list = set(string.punctuation)
     text = ''.join(word for word in text if word not in punctuation_list)
     
+    # Remove n-digit numbers (perhaps do this during clean?)
+    text = re.sub(pattern=r'\b\d+\b', repl='', string=text)
+    
     tokens = word_tokenize(text)
     
     if stopwords:
@@ -172,6 +175,8 @@ for company in company_dir_list:
                 ten_k_vec = vectorize_and_preprocess_filings([latest_text, previous_ten_k_sections[latest_section]])
                 cosine_sim_ten_k = calculate_cosine_similarity(ten_k_vec.toarray()[0], ten_k_vec.toarray()[1])
                 ten_k_result_dict[latest_section] = cosine_sim_ten_k
+                ten_k_result_dict[(latest_section+'_lwc')] = len(word_tokenize(latest_text))
+                ten_k_result_dict[(latest_section+'_pwc')] = len(word_tokenize(previous_ten_k_sections[latest_section]))
 
         df_ten_k_results = df_ten_k_results.append(ten_k_result_dict, ignore_index=True)
     except BaseException as e:
