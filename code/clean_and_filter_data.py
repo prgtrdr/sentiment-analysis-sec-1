@@ -361,152 +361,127 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
 
         # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>PART I|1[^I1].*?FINANCIAL INFORMATION.*?>PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART I[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        use_part_list = 0
+        if len(part_list) > 1 and len(part_list[1]) > len(part_list[0]):
+                use_part_list = 1
+        dataI = part_list[use_part_list]
 
-        # Regex to find <DOCUMENT> tags
-        doc_start_pattern = re.compile(r'<DOCUMENT>')
-        doc_end_pattern = re.compile(r'</DOCUMENT>')
-        # Regex to find <TYPE> tag prceeding any characters, terminating at new line
-        type_pattern = re.compile(r'<TYPE>[^\n]+')
+        documentI = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
+        regex = re.compile(r'>item\s(5|4|3|2|1)(A|B)?\.', re.IGNORECASE)
 
-        doc_start_is = [x.end() for x in doc_start_pattern.finditer(data)]
-        doc_end_is = [x.start() for x in doc_end_pattern.finditer(data)]
-        doc_types = [x[len('<TYPE>'):] for x in type_pattern.findall(data)]
-
-        # Create a Dictionary for the 10-K
-        # 
-        # In the code below, we create a dictionary which has the key `10-K` and as value the contents of the `10-K` section
-        # found above. To do this, we will create a loop, to go through all the sections found above, and if the section
-        # type is `10-K` then save it to the dictionary. Use the indices in  `doc_start_is` and `doc_end_is`to slice the
-        # `data` file.
-        document = {}
-
-        # Create a loop to go through each section type and save only the first 10-K section in the dictionary
-        for doc_type, doc_start, doc_end in zip(doc_types, doc_start_is, doc_end_is):
-            if doc_type == '10-K':
-                document[doc_type] = data[doc_start:doc_end]
-                break
-
-        # Validity check
-        if '10-K' not in document:
-            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write('Could not find document[10-K]\n' + '\n' + doc_start_is + '\n' + doc_end_is + '\n' +doc_types)
-                return
-
-        # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
-        document['10-K'] = re.sub(r'>\s*?(Part I+(?:\.|\||,|\s)*?)?(I?TEM)S?(?:<.*?>)?(\s)*(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
-        regex = re.compile(r'>item\s(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)(A|B)?\.', re.IGNORECASE)
-        
         # Use finditer to match the regex
-        matches = regex.finditer(document['10-K'])
+        matches = regex.finditer(documentI)
 
         # Create the dataframe
-        test_df = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
+        dfI = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
+
+        # Extract text between PART II and end of document
+        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?:>\s*?PART I|$)', string=data, flags=re.S | re.A | re.I)
+        dataII = part_list[use_part_list]
+
+        documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
+        regex = re.compile(r'>item\s(25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
+
+        # Use finditer to match the regex
+        matches = regex.finditer(documentII)
+
+        # Create the dataframe
+        dfII = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
         
-        if len(test_df.index) == 0:
+        if len(dfI.index) == 0 or len(dfII.index) == 0 :
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\nNo Item matches found')
+                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\ndfII: No Item matches found\n' + dfI + '\n' + dfII)
                 return
 
-        test_df.columns = ['item', 'start', 'end']
-        test_df['item'] = test_df.item.str.lower()
+        dfI.columns = ['item', 'start', 'end']
+        dfII.columns = ['item', 'start', 'end']
+        dfI['item'] = dfI.item.str.lower()
+        dfII['item'] = dfII.item.str.lower()
 
-        # Get rid of unnesesary charcters from the dataframe
-        # Replace all Unicode strings with a space
-        test_df.replace(r'&(.{2,6});', ' ', regex=True,inplace=True)
-        test_df.replace(r'\.','',regex=True,inplace=True)
-        test_df.replace(r' |>|\(|\)|\n','',regex=True,inplace=True)
+        # Get rid of unnessecary characters from the dataframe
+        dfI.replace(r' |>|\(|\)|\.|\n','',regex=True,inplace=True)
+        dfII.replace(r' |>|\(|\)|\.|\n','',regex=True,inplace=True)
         
-        # fix for 0000731012-16-000120
-        test_df.replace(r'itemi','item1',regex=True,inplace=True)
-
         # Form map of where the items are located
-        pos_dat = test_df.sort_values('start', ascending=True)
+        pos_datI = dfI.sort_values('start', ascending=True)
+        pos_datII = dfII.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
         error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
-        if 'item1' not in pos_dat['item'].values:
+        if 'item1' not in pos_datI['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
-                output.write(pos_dat.to_string())
+                output.write(pos_datI.to_string())
             return
 
-        # Combine duplicate rows to handle submissions with more than one page
-        last_item = ''
-        for index, row in pos_dat.iterrows():
-            if row['item'] == last_item:
-                pos_dat.drop(index, inplace=True)
-            else:
-                last_item = row['item']
-
-        pos_dat = pos_dat.reset_index(drop=True)
-
-        # Get rid of out-of-sequence rows
-        drop_rows = []
-        error_count = 0
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
-        for i in range(1, pos_dat.shape[0]):
-            this_item = items_10K.index( pos_dat.iloc[i]['item'] )
-            if this_item == 0:
-                continue
-            prev_item = items_10K.index( pos_dat.iloc[i-1]['item'] )
-            if i+1 == pos_dat.shape[0]:
-                next_item = len(items_10K)+1
-            else:
-                next_item = items_10K.index( pos_dat.iloc[i+1]['item'] )
-                if next_item == 0 and (this_item > prev_item): 
-                    continue
-            if (this_item <= prev_item) or ((next_item > prev_item) and (this_item > next_item)):
-                error_count += 1
-                error_info = error_info + f'Sequence err. Index: {i}, Prev: {items_10K[prev_item]}, This: {items_10K[this_item]}, Next: {"END" if next_item > len(items_10K) else items_10K[next_item]}\n' + \
-                    document['10-K'][pos_dat.iloc[i]['start']-256: pos_dat.iloc[i]['start']+256 ].replace('\n', '') + '\n\n'
-                pos_dat.at[i, 'item'] = pos_dat.iloc[i-1]['item']
-                drop_rows.append(i)
-
-        pos_dat.drop(drop_rows, inplace = True)
-
-        # Write sequnce fixes to output file. We can make this optional at some point.    
-        if error_count > MAX_SEQ_ERRORS:
-            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+        if 'item21' not in pos_datII['item'].values:
+            error_info = error_info + '21 '
+            error_info = error_info + 'not found\n'
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
-                output.write('\n' + '*' * 66 + '\n' + pos_dat.to_string())
-
+                output.write(pos_datII.to_string())
+            return
 
         # Set ending address of the section, and add a length column. To calculate length, strip HTML
-        pos_dat['end'] = np.append(pos_dat.iloc[1:,1].values, [ 0 ])
+        pos_datI['end'] = np.append(pos_datI.iloc[1:,1].values, [ 0 ])
         len_vals = []
-        for index, row in pos_dat.iterrows():
-            stripped_data = strip_tags(document['10-K'][row['start']:row['end']])
+        for index, row in pos_datI.iterrows():
+            stripped_data = strip_tags(documentI[row['start']:row['end']])
             len_vals.append(len(stripped_data))
-        pos_dat.insert(3, 'length', len_vals)
+        pos_datI.insert(3, 'length', len_vals)
+
+        pos_datII['end'] = np.append(pos_datII.iloc[1:,1].values, [ 0 ])
+        len_vals = []
+        for index, row in pos_datII.iterrows():
+            stripped_data = strip_tags(documentII[row['start']:row['end']])
+            len_vals.append(len(stripped_data))
+        pos_datII.insert(3, 'length', len_vals)
 
         # Drop the shorter of each set of rows. 
         #   1. Sort by appearance in the filing
         #   2. Iterate through, saving each occurrence of item1.
         #   3. Upon finding item1, compare length to previous item1.
         #   4. If longer, delete all previous rows. If shorter, delete all following rown, inclusive.
-        pos_dat = pos_dat.sort_values('start', ascending=True)
+        pos_datI = pos_datI.sort_values('start', ascending=True)
         prev_item1_len = 0
-        for index, row in pos_dat.iterrows():
+        for index, row in pos_datI.iterrows():
             if row['item'] == 'item1':
                 if row['length'] > prev_item1_len:
-                    rows_to_drop = pos_dat[pos_dat.index < index].index
-                    pos_dat.drop(rows_to_drop, inplace=True)
+                    rows_to_drop = pos_datI[pos_datI.index < index].index
+                    pos_datI.drop(rows_to_drop, inplace=True)
                     prev_item1_len = row['length']
                 else:
-                    rows_to_drop = pos_dat[pos_dat.index >= index].index
-                    pos_dat.drop(rows_to_drop, inplace=True)
+                    rows_to_drop = pos_datI[pos_datI.index >= index].index
+                    pos_datI.drop(rows_to_drop, inplace=True)
+                    break
+
+        pos_datII = pos_datII.sort_values('start', ascending=True)
+        prev_item1_len = 0
+        for index, row in pos_datII.iterrows():
+            if row['item'] == 'item1':
+                if row['length'] > prev_item1_len:
+                    rows_to_drop = pos_datII[pos_datII.index < index].index
+                    pos_datII.drop(rows_to_drop, inplace=True)
+                    prev_item1_len = row['length']
+                else:
+                    rows_to_drop = pos_datII[pos_datII.index >= index].index
+                    pos_datII.drop(rows_to_drop, inplace=True)
                     break
 
         # Set item as the dataframe index
-        pos_dat.set_index('item', inplace=True)
+        pos_datI.set_index('item', inplace=True)
+        pos_datII.set_index('item', inplace=True)
 
         # Use Beautiful Soup to extract text from the raw data 
         aggregate_text = ''
-        for index, row in pos_dat.iterrows():
-            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(document['10-K'], pos_dat, index)
+        for index, row in pos_datI.iterrows():
+            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentI, pos_datI, index)
+
+        for index, row in pos_datII.iterrows():
+            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             output.write(aggregate_text)
