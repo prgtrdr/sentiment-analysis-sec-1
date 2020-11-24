@@ -360,10 +360,13 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Intelligently remove tables. Some filers use tables as text alignment so keep the ones with < 10% numeric
         data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
 
+        # Change multiple whitespace to single whitespace
+        data = re.sub(r'\s+', repl=' ', string=data, flags=re.S | re.A)
+
         # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>\s*?PART I[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
         use_part_list = 0
-        if len(part_list) > 1 and len(part_list[1]) > len(part_list[0]):
+        if len(part_list) > 1 and len(strip_tags(part_list[1])) > len(strip_tags(part_list[0])):
                 use_part_list = 1
         dataI = part_list[use_part_list]
 
@@ -377,11 +380,11 @@ def clean_filing(input_filename, filing_type, output_filename):
         dfI = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
 
         # Extract text between PART II and end of document
-        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?:>\s*?PART I|$)', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?:>\s*?PART (?:I|1)|$)', string=data, flags=re.S | re.A | re.I)
         dataII = part_list[use_part_list]
 
-        documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
-        regex = re.compile(r'>item\s(25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
+        documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
+        regex = re.compile(r'>item\s(26|25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
         matches = regex.finditer(documentII)
@@ -389,9 +392,9 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Create the dataframe
         dfII = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
         
-        if len(dfI.index) == 0 or len(dfII.index) == 0 :
+        if len(dfII.index) == 0 :
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\ndfII: No Item matches found\n' + dfI + '\n' + dfII)
+                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\ndfII: No Item matches found\n')
                 return
 
         dfI.columns = ['item', 'start', 'end']
@@ -481,7 +484,14 @@ def clean_filing(input_filename, filing_type, output_filename):
             aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentI, pos_datI, index)
 
         for index, row in pos_datII.iterrows():
-            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
+            try:
+                aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
+            except:
+                error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+                with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                    output.write('Error in pos_datII:\n' + pos_datII.to_string())
+                return
+
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             output.write(aggregate_text)
