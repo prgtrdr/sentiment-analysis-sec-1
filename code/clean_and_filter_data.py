@@ -66,7 +66,7 @@ MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error loggi
 USE_EDGAR_FILENAME = False
 CLEAN_10K = False
 CLEAN_10Q = True
-
+OVERWRITE_EXISTING = False
 
 # Utility functions
 
@@ -117,7 +117,7 @@ def tablerep(matchobj):
         return ''
 
     # If less than 8% of the chars in the table are numbers, keep it, else delete
-    if (numbers / divisor) < 0.1: 
+    if (numbers / divisor) < 0.1 or 'Item 1' in text: 
         return matchobj.group(0)
     else:
         return ''
@@ -590,6 +590,10 @@ def clean_all_filings():
                 # cleaning files
                 if 'cleaned' in file: 
                     continue
+
+                if not OVERWRITE_EXISTING:
+                    if os.path.exists('cleaned_' + str(file)):
+                        continue
                 
                 if file.endswith('10-K'): filing_type = '10-K'
                 else: filing_type = '10-Q'
