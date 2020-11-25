@@ -47,18 +47,24 @@ items_10K = [
     'item16'    #29
 ]
 
-items_10Q = [
+items_10QI = [
     'item1',   #0
-    'item2',   #1
-    'item3',   #2
-    'item4'    #3
-    'item21',  #4
-    'item21a', #5
-    'item22',  #6
-    'item23',  #7
-    'item24',  #8
-    'item25',  #9
-    'item26'   #10
+    'item1a',  #1
+    'item2',   #2
+    'item3',   #3
+    'item4',   #4
+    'item5',   #5
+    'item6'    #6
+]
+items_10QII = [
+    'item21',  #0
+    'item21a', #1
+    'item22',  #2
+    'item23',  #3
+    'item24',  #4
+    'item24a', #5
+    'item25',  #6
+    'item26'   #7
 ]
 
 SECTION_MARKER = 'Â°'
@@ -67,6 +73,7 @@ USE_EDGAR_FILENAME = False
 CLEAN_10K = False
 CLEAN_10Q = True
 OVERWRITE_EXISTING = False
+EDGAR_PATH = ''
 
 # Utility functions
 
@@ -125,6 +132,33 @@ def tablerep(matchobj):
 # Function to compare returned sections
 def len_no_tags(input_str):
     return(len(strip_tags(input_str)))
+
+# Get rid of out-of-sequence rows in dataframe
+def delete_out_of_seq(in_document, pos_dat, items_list, error_info):
+    drop_rows = []
+    error_count = 0
+    error_info = EDGAR_PATH + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+    for i in range(1, pos_dat.shape[0]):
+        this_item = items_list.index( pos_dat.iloc[i]['item'] )
+        if this_item == 0:
+            continue
+        prev_item = items_list.index( pos_dat.iloc[i-1]['item'] )
+        if i+1 == pos_dat.shape[0]:
+            next_item = len(items_list)+1
+        else:
+            next_item = items_list.index( pos_dat.iloc[i+1]['item'] )
+            if next_item == 0 and (this_item > prev_item): 
+                continue
+
+        if (this_item <= prev_item) or ((next_item > prev_item) and (this_item > next_item)):
+            error_count += 1
+            error_info = error_info + f'Sequence err. Index: {i}, Prev: {items_list[prev_item]}, This: {items_list[this_item]}, Next: {"END" if next_item > len(items_list) else items_list[next_item]}\n' + \
+                in_document[pos_dat.iloc[i]['start']-256: pos_dat.iloc[i]['start']+256 ].replace('\n', '') + '\n\n'
+            pos_dat.at[i, 'item'] = pos_dat.iloc[i-1]['item']
+            drop_rows.append(i)
+
+    pos_dat.drop(drop_rows, inplace = True)
+    return error_count
     
 def clean_filing(input_filename, filing_type, output_filename):
     """
@@ -140,7 +174,7 @@ def clean_filing(input_filename, filing_type, output_filename):
     # Extract EDGAR CIK and filename
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
-    edgar_path = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}'
+    EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}'
 
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
@@ -220,8 +254,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write('Could not find document[10-K]\n' + '\n' + doc_start_is + '\n' + doc_end_is + '\n' +doc_types)
                 return
 
-        # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
-        # document['10-K'] = re.sub(r'>(\s|Part I+(?:\.|\||,|\s))*?(I?TEM)S?(?:<.*?>)?(\s)+(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
+        # STEP 3 : Apply REGEXes to find all Item sections
         document['10-K'] = re.sub(r'>\s*?(Part I+(?:\.|\||,|\s)*?)?(I?TEM)S?(?:<.*?>)?(\s)*(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)(A|B)?\.', re.IGNORECASE)
         
@@ -233,7 +266,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         
         if len(test_df.index) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(edgar_path + '\nNo Item matches found')
+                output.write(EDGAR_PATH + '\nNo Item matches found')
                 return
 
         test_df.columns = ['item', 'start', 'end']
@@ -252,7 +285,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_dat = test_df.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = edgar_path + '\n'
+        error_info = EDGAR_PATH + '\n'
         if 'item1' not in pos_dat['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -274,7 +307,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Get rid of out-of-sequence rows
         drop_rows = []
         error_count = 0
-        error_info = edgar_path + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+        error_info = EDGAR_PATH + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
         for i in range(1, pos_dat.shape[0]):
             this_item = items_10K.index( pos_dat.iloc[i]['item'] )
             if this_item == 0:
@@ -349,6 +382,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<PDF.*?</PDF>', '', data, flags=re.S | re.A | re.I )
         #data = re.sub(r'<XBRL.*?</XBRL>', '', data, flags=re.S | re.A | re.IGNORECASE )
 
         # Delete certain HTML that may be embedded in words like ITEM
@@ -368,10 +402,10 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'\s+', repl=' ', string=data, flags=re.S | re.A)
 
         # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?FINANCIAL (?:INFORMATION|STATEMENTS)(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
         if len(part_list) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(edgar_path + '\nCould not parse Part I')
+                output.write(EDGAR_PATH + '\nCould not parse Part I')
                 return
         dataI = max(part_list, key=len_no_tags)
 
@@ -383,12 +417,16 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         # Create the dataframe
         dfI = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
+        if len(dfI.index) == 0 :
+            with open('error_NFI_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\ndfI: No Item matches found')
+                return
 
         # Extract text between PART II and end of document
         part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?=>\s*?PART (?:I|1)|$)', string=data, flags=re.S | re.A | re.I)
         if len(part_list) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(edgar_path + '\nCould not parse Part II')
+                output.write(EDGAR_PATH + '\nCould not parse Part II')
                 return
         dataII = max(part_list, key=len_no_tags)
 
@@ -402,8 +440,8 @@ def clean_filing(input_filename, filing_type, output_filename):
         dfII = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
         
         if len(dfII.index) == 0 :
-            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(edgar_path + '\ndfII: No Item matches found')
+            with open('error_NFII_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\ndfII: No Item matches found')
                 return
 
         dfI.columns = ['item', 'start', 'end']
@@ -420,7 +458,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_datII = dfII.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = edgar_path + '\n'
+        error_info = EDGAR_PATH + '\n'
         if 'item1' not in pos_datI['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -453,6 +491,18 @@ def clean_filing(input_filename, filing_type, output_filename):
             else:
                 last_item = row['item']
         pos_datII = pos_datII.reset_index(drop=True)
+
+        error_info = ''
+        if delete_out_of_seq(documentI, pos_datI, items_10QI, error_info) > MAX_SEQ_ERRORS:
+        # Write sequence fixes to output file. We can make this optional at some point.    
+            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write('\n' + '*' * 66 + '\n' + pos_datI.to_string())
+
+        if delete_out_of_seq(documentII, pos_datII, items_10QII, error_info) > MAX_SEQ_ERRORS:
+            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write('\n' + '*' * 66 + '\n' + pos_datII.to_string())
 
         # Set ending address of the section, and add a length column. To calculate length, strip HTML
         pos_datI['end'] = np.append(pos_datI.iloc[1:,1].values, [ 0 ])
@@ -513,7 +563,7 @@ def clean_filing(input_filename, filing_type, output_filename):
             try:
                 aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
             except:
-                error_info = edgar_path + '\n'
+                error_info = EDGAR_PATH + '\n'
                 with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                     output.write('Error in pos_datII:\n' + pos_datII.to_string())
                 return
