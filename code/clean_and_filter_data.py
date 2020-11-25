@@ -557,8 +557,8 @@ def clean_all_filings():
 
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            if 'ALLSTATE' not in company:
-                continue
+            # if 'ALLSTATE' not in company:
+            #    continue
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
@@ -643,9 +643,9 @@ def move_10k_10q_to_folder():
 
 clean_all_filings()
 
-#rename_10_Q_filings()
+rename_10_Q_filings()
 
-#move_10k_10q_to_folder()
+move_10k_10q_to_folder()
 
 
 
