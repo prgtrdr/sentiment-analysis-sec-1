@@ -48,17 +48,17 @@ items_10K = [
 ]
 
 items_10Q = [
-    'itemI1',   #0
-    'itemI2',   #1
-    'itemI3',   #2
-    'itemI4'    #3
-    'itemII1',  #4
-    'itemII1a', #5
-    'itemII2',  #6
-    'itemII3',  #7
-    'itemII4',  #8
-    'itemII5',  #9
-    'itemII6'   #10
+    'item1',   #0
+    'item2',   #1
+    'item3',   #2
+    'item4'    #3
+    'item21',  #4
+    'item21a', #5
+    'item22',  #6
+    'item23',  #7
+    'item24',  #8
+    'item25',  #9
+    'item26'   #10
 ]
 
 SECTION_MARKER = 'Â°'
@@ -122,6 +122,9 @@ def tablerep(matchobj):
     else:
         return ''
 
+# Function to compare returned sections
+def len_no_tags(input_str):
+    return(len(strip_tags(input_str)))
     
 def clean_filing(input_filename, filing_type, output_filename):
     """
@@ -137,6 +140,7 @@ def clean_filing(input_filename, filing_type, output_filename):
     # Extract EDGAR CIK and filename
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
+    edgar_path = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}'
 
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
@@ -229,7 +233,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         
         if len(test_df.index) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\nNo Item matches found')
+                output.write(edgar_path + '\nNo Item matches found')
                 return
 
         test_df.columns = ['item', 'start', 'end']
@@ -248,7 +252,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_dat = test_df.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+        error_info = edgar_path + '\n'
         if 'item1' not in pos_dat['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -270,7 +274,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Get rid of out-of-sequence rows
         drop_rows = []
         error_count = 0
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+        error_info = edgar_path + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
         for i in range(1, pos_dat.shape[0]):
             this_item = items_10K.index( pos_dat.iloc[i]['item'] )
             if this_item == 0:
@@ -365,10 +369,11 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         # Extract text between PART I and PART II. Will probably get 2 matches
         part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
-        use_part_list = 0
-        if len(part_list) > 1 and len(strip_tags(part_list[1])) > len(strip_tags(part_list[0])):
-                use_part_list = 1
-        dataI = part_list[use_part_list]
+        if len(part_list) == 0:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(edgar_path + '\nCould not parse Part I')
+                return
+        dataI = max(part_list, key=len_no_tags)
 
         documentI = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(5|4|3|2|1)(A|B)?\.', re.IGNORECASE)
@@ -380,8 +385,12 @@ def clean_filing(input_filename, filing_type, output_filename):
         dfI = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
 
         # Extract text between PART II and end of document
-        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?:>\s*?PART (?:I|1)|$)', string=data, flags=re.S | re.A | re.I)
-        dataII = part_list[use_part_list]
+        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?=>\s*?PART (?:I|1)|$)', string=data, flags=re.S | re.A | re.I)
+        if len(part_list) == 0:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(edgar_path + '\nCould not parse Part II')
+                return
+        dataII = max(part_list, key=len_no_tags)
 
         documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(26|25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
@@ -394,7 +403,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         
         if len(dfII.index) == 0 :
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\ndfII: No Item matches found\n')
+                output.write(edgar_path + '\ndfII: No Item matches found')
                 return
 
         dfI.columns = ['item', 'start', 'end']
@@ -411,7 +420,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_datII = dfII.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+        error_info = edgar_path + '\n'
         if 'item1' not in pos_datI['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -420,13 +429,30 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write(pos_datI.to_string())
             return
 
-        if 'item21' not in pos_datII['item'].values:
+        if 'item26' not in pos_datII['item'].values:
             error_info = error_info + '21 '
             error_info = error_info + 'not found\n'
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
                 output.write(pos_datII.to_string())
             return
+
+        # Combine duplicate rows to handle submissions with more than one page
+        last_item = ''
+        for index, row in pos_datI.iterrows():
+            if row['item'] == last_item:
+                pos_datI.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+        pos_datI = pos_datI.reset_index(drop=True)
+
+        last_item = ''
+        for index, row in pos_datII.iterrows():
+            if row['item'] == last_item:
+                pos_datII.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+        pos_datII = pos_datII.reset_index(drop=True)
 
         # Set ending address of the section, and add a length column. To calculate length, strip HTML
         pos_datI['end'] = np.append(pos_datI.iloc[1:,1].values, [ 0 ])
@@ -487,7 +513,7 @@ def clean_filing(input_filename, filing_type, output_filename):
             try:
                 aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
             except:
-                error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+                error_info = edgar_path + '\n'
                 with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                     output.write('Error in pos_datII:\n' + pos_datII.to_string())
                 return
@@ -495,53 +521,6 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             output.write(aggregate_text)
-
-"""         # get text in between the appropriate 10-Q tags
-        search_10q = re.search("(?s)(?m)<TYPE>{}.*?(</TEXT>)".format(filing_type), data)
-        try:
-            data_processed = search_10q.group(0)
-        
-            # delete formatting text used to identify 10-K section as its not relevant
-            data_processed = re.sub(pattern="(<TYPE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-
-            # Five more formatting tags are deleted
-            data_processed = re.sub(pattern="(<SEQUENCE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="(<FILENAME>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="(<DESCRIPTION>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="<head>.*?</head>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="<ix:header.*?</ix:header>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-
-            reg_tables = re.findall(r'<TABLE.*?</TABLE>', data_processed, re.S | re.A | re.IGNORECASE )
-
-            # Add up the sizes of the table sections
-            table_len = len(''.join(reg_tables))
-            num_tables = len(reg_tables)
-            print(f'TABLES number={num_tables:,}, length={table_len:,}')
-
-            data_processed = re.sub(r'<TABLE((?!>Item).)*?</TABLE>', '', data_processed, flags=re.S | re.I)
-
-            # Tags each section of the financial statement with prefix '°Item' for future analysis
-            data_processed = re.sub(r'> +Item|>Item|^Item', '>Â°Item', data_processed, flags=re.DOTALL | re.IGNORECASE | re.MULTILINE)
-            
-            # Removes all HTML tags
-            data_processed = re.sub(r"(?s)<.*?>", ' ', string=data_processed)
-
-            # Replaces all Unicode strings
-            data_processed = re.sub(pattern=r'&(.{2,6});', repl=" ", string=data_processed)
-
-            # Replaces multiple spaces with a single space
-            data_processed = re.sub(pattern=r"(?s) +", repl=" ", string=data_processed)
-
-            # Get rid of blank lines (with or without whitespace)
-            data_processed = re.sub(r'^\s*$\n', repl='', string=data_processed, flags=re.M)
-            
-            with open(output_filename, 'w', encoding='utf-8') as output:
-                output.write(data_processed)
-                
-        except BaseException as e:
-            print('{} could not be cleaned. Exception: {}'.format(input_filename, e))
-            pass
- """
 
  
 def clean_all_filings():
@@ -578,8 +557,8 @@ def clean_all_filings():
 
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            # if 'INTERNATIONAL BUSINESS' not in company:
-            #     continue
+            if 'ALLSTATE' not in company:
+                continue
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
@@ -664,9 +643,9 @@ def move_10k_10q_to_folder():
 
 clean_all_filings()
 
-rename_10_Q_filings()
+#rename_10_Q_filings()
 
-move_10k_10q_to_folder()
+#move_10k_10q_to_folder()
 
 
 
