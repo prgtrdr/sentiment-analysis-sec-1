@@ -173,8 +173,9 @@ def clean_filing(input_filename, filing_type, output_filename):
 
     # Extract EDGAR CIK and filename
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
+    edgar_accession = re.search(r'(?:ACCESSION NUMBER:\s+)([\d-]+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
-    EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}'
+    EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{edgar_accession.replace("-", "")}/{edgar_filename}'
 
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
@@ -403,7 +404,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'\s+', repl=' ', string=data, flags=re.S | re.A)
 
         # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?FINANCIAL (?:INFORMATION|STATEMENTS)(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?(?:FINANCIAL (?:INFORMATION|STATEMENTS))?(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
         if len(part_list) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(EDGAR_PATH + '\nCould not parse Part I')
@@ -411,6 +412,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         dataI = max(part_list, key=len_no_tags)
 
         documentI = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
+        documentI = documentI.replace('>item I', '>item 1')
         regex = re.compile(r'>item\s(5|4|3|2|1)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
@@ -432,6 +434,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         dataII = max(part_list, key=len_no_tags)
 
         documentII = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
+        documentII = documentII.replace('>item 2I', '>item 21')
         regex = re.compile(r'>item\s(26|25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
@@ -608,8 +611,8 @@ def clean_all_filings():
 
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            # if 'ALLSTATE' not in company:
-            #    continue
+            if 'AMERICAN FINANCIAL' not in company:
+                continue
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
@@ -694,9 +697,9 @@ def move_10k_10q_to_folder():
 
 clean_all_filings()
 
-rename_10_Q_filings()
+#rename_10_Q_filings()
 
-move_10k_10q_to_folder()
+#move_10k_10q_to_folder()
 
 
 
