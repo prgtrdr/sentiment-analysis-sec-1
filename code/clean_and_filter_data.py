@@ -380,6 +380,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>RENDERED XBRL.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<PDF.*?</PDF>', '', data, flags=re.S | re.A | re.I )
@@ -409,7 +410,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 return
         dataI = max(part_list, key=len_no_tags)
 
-        documentI = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
+        documentI = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(5|4|3|2|1)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
@@ -430,7 +431,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 return
         dataII = max(part_list, key=len_no_tags)
 
-        documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
+        documentII = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(26|25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
