@@ -9,9 +9,17 @@ import shutil
 import ProjectDirectory as directory
 from io import StringIO
 from html.parser import HTMLParser
-# import ftfy
 import html
-# import xml.sax.saxutils as saxutils
+
+# Global variables. Make these settable from the command line.
+SECTION_MARKER = 'Â°'
+MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error logging
+USE_EDGAR_FILENAME = False  # If true, use names of files downloaded using sec-utils
+CLEAN_10K = False   # Clean 10-K filings
+CLEAN_10Q = True    # Clean 10-Q filings
+OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
+EDGAR_PATH = ''     # Will contain full path to the EDGAR website document being parsed
+COMPANY_SCAN_LIST = []  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
 
 # List of items_10K found in filings, in order of appearance.
 items_10K = [
@@ -66,14 +74,6 @@ items_10QII = [
     'item25',  #6
     'item26'   #7
 ]
-
-SECTION_MARKER = 'Â°'
-MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error logging
-USE_EDGAR_FILENAME = False
-CLEAN_10K = False
-CLEAN_10Q = True
-OVERWRITE_EXISTING = False
-EDGAR_PATH = ''
 
 # Utility functions
 
@@ -611,7 +611,7 @@ def clean_all_filings():
 
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            if 'AMERICAN FINANCIAL' not in company:
+            if not any(x in company for x in COMPANY_SCAN_LIST):
                 continue
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
