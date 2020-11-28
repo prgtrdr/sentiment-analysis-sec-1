@@ -19,7 +19,8 @@ CLEAN_10K = False   # Clean 10-K filings
 CLEAN_10Q = True    # Clean 10-Q filings
 OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
 EDGAR_PATH = ''     # Will contain full path to the EDGAR website document being parsed
-COMPANY_SCAN_LIST = []  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_LIST = ['VONAGE']  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_CONTINUE = True    # If True, continue scanning when done with first company in list
 
 # List of items_10K found in filings, in order of appearance.
 items_10K = [
@@ -68,11 +69,12 @@ items_10QII = [
     'item21',  #0
     'item21a', #1
     'item22',  #2
-    'item23',  #3
-    'item24',  #4
-    'item24a', #5
-    'item25',  #6
-    'item26'   #7
+    'item22a', #3
+    'item23',  #4
+    'item24',  #5
+    'item24a', #6
+    'item25',  #7
+    'item26'   #8
 ]
 
 # Utility functions
@@ -137,7 +139,6 @@ def len_no_tags(input_str):
 def delete_out_of_seq(in_document, pos_dat, items_list, error_info):
     drop_rows = []
     error_count = 0
-    error_info = EDGAR_PATH + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
     for i in range(1, pos_dat.shape[0]):
         this_item = items_list.index( pos_dat.iloc[i]['item'] )
         if this_item == 0:
@@ -267,7 +268,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         
         if len(test_df.index) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(EDGAR_PATH + '\nNo Item matches found')
+                output.write(EDGAR_PATH + '\nNo Item matches found in test_df')
                 return
 
         test_df.columns = ['item', 'start', 'end']
@@ -404,7 +405,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'\s+', repl=' ', string=data, flags=re.S | re.A)
 
         # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?(?:FINANCIAL (?:INFORMATION|STATEMENTS))?(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        part_list = re.findall(r'>\s*?PART (?:I|1)[^I](?:.*?FINANCIAL (?:INFORMATION|STATEMENTS))?(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
         if len(part_list) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(EDGAR_PATH + '\nCould not parse Part I')
@@ -496,13 +497,14 @@ def clean_filing(input_filename, filing_type, output_filename):
                 last_item = row['item']
         pos_datII = pos_datII.reset_index(drop=True)
 
-        error_info = ''
+        error_info = EDGAR_PATH + '\n' + pos_datI.to_string() + '\n' + '*' * 66 + '\n'
         if delete_out_of_seq(documentI, pos_datI, items_10QI, error_info) > MAX_SEQ_ERRORS:
         # Write sequence fixes to output file. We can make this optional at some point.    
             with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
                 output.write('\n' + '*' * 66 + '\n' + pos_datI.to_string())
 
+        error_info = EDGAR_PATH + '\n' + pos_datII.to_string() + '\n' + '*' * 66 + '\n'
         if delete_out_of_seq(documentII, pos_datII, items_10QII, error_info) > MAX_SEQ_ERRORS:
             with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
@@ -569,7 +571,7 @@ def clean_filing(input_filename, filing_type, output_filename):
             except:
                 error_info = EDGAR_PATH + '\n'
                 with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                    output.write('Error in pos_datII:\n' + pos_datII.to_string())
+                    output.write(EDGAR_PATH + '\nError in pos_datII:\n' + pos_datII.to_string())
                 return
 
 
@@ -609,10 +611,14 @@ def clean_all_filings():
     else:
         company_list = os.listdir(os.path.join(project_dir, 'sec-filings-downloaded'))  
 
+        keep_going = False
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            if not any(x in company for x in COMPANY_SCAN_LIST):
+            if not any(x in company for x in COMPANY_SCAN_LIST) and not keep_going:
                 continue
+            else:
+                if COMPANY_SCAN_LIST:
+                    keep_going = True
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
