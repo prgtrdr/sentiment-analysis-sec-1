@@ -47,18 +47,24 @@ items_10K = [
     'item16'    #29
 ]
 
-items_10Q = [
-    'itemI1',   #0
-    'itemI2',   #1
-    'itemI3',   #2
-    'itemI4'    #3
-    'itemII1',  #4
-    'itemII1a', #5
-    'itemII2',  #6
-    'itemII3',  #7
-    'itemII4',  #8
-    'itemII5',  #9
-    'itemII6'   #10
+items_10QI = [
+    'item1',   #0
+    'item1a',  #1
+    'item2',   #2
+    'item3',   #3
+    'item4',   #4
+    'item5',   #5
+    'item6'    #6
+]
+items_10QII = [
+    'item21',  #0
+    'item21a', #1
+    'item22',  #2
+    'item23',  #3
+    'item24',  #4
+    'item24a', #5
+    'item25',  #6
+    'item26'   #7
 ]
 
 SECTION_MARKER = 'Â°'
@@ -66,7 +72,8 @@ MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error loggi
 USE_EDGAR_FILENAME = False
 CLEAN_10K = False
 CLEAN_10Q = True
-
+OVERWRITE_EXISTING = False
+EDGAR_PATH = ''
 
 # Utility functions
 
@@ -117,11 +124,41 @@ def tablerep(matchobj):
         return ''
 
     # If less than 8% of the chars in the table are numbers, keep it, else delete
-    if (numbers / divisor) < 0.1: 
+    if (numbers / divisor) < 0.1 or 'Item 1' in text: 
         return matchobj.group(0)
     else:
         return ''
 
+# Function to compare returned sections
+def len_no_tags(input_str):
+    return(len(strip_tags(input_str)))
+
+# Get rid of out-of-sequence rows in dataframe
+def delete_out_of_seq(in_document, pos_dat, items_list, error_info):
+    drop_rows = []
+    error_count = 0
+    error_info = EDGAR_PATH + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+    for i in range(1, pos_dat.shape[0]):
+        this_item = items_list.index( pos_dat.iloc[i]['item'] )
+        if this_item == 0:
+            continue
+        prev_item = items_list.index( pos_dat.iloc[i-1]['item'] )
+        if i+1 == pos_dat.shape[0]:
+            next_item = len(items_list)+1
+        else:
+            next_item = items_list.index( pos_dat.iloc[i+1]['item'] )
+            if next_item == 0 and (this_item > prev_item): 
+                continue
+
+        if (this_item <= prev_item) or ((next_item > prev_item) and (this_item > next_item)):
+            error_count += 1
+            error_info = error_info + f'Sequence err. Index: {i}, Prev: {items_list[prev_item]}, This: {items_list[this_item]}, Next: {"END" if next_item > len(items_list) else items_list[next_item]}\n' + \
+                in_document[pos_dat.iloc[i]['start']-256: pos_dat.iloc[i]['start']+256 ].replace('\n', '') + '\n\n'
+            pos_dat.at[i, 'item'] = pos_dat.iloc[i-1]['item']
+            drop_rows.append(i)
+
+    pos_dat.drop(drop_rows, inplace = True)
+    return error_count
     
 def clean_filing(input_filename, filing_type, output_filename):
     """
@@ -136,7 +173,9 @@ def clean_filing(input_filename, filing_type, output_filename):
 
     # Extract EDGAR CIK and filename
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
+    edgar_accession = re.search(r'(?:ACCESSION NUMBER:\s+)([\d-]+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
+    EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{edgar_accession.replace("-", "")}/{edgar_filename}'
 
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
@@ -216,8 +255,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write('Could not find document[10-K]\n' + '\n' + doc_start_is + '\n' + doc_end_is + '\n' +doc_types)
                 return
 
-        # STEP 3 : Apply REGEXes to find Item 1A, 7, and 7A under 10-K Section 
-        # document['10-K'] = re.sub(r'>(\s|Part I+(?:\.|\||,|\s))*?(I?TEM)S?(?:<.*?>)?(\s)+(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
+        # STEP 3 : Apply REGEXes to find all Item sections
         document['10-K'] = re.sub(r'>\s*?(Part I+(?:\.|\||,|\s)*?)?(I?TEM)S?(?:<.*?>)?(\s)*(<.*?>)?(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?(\.|\s|<|\:)', '>item \\5\\6.\\7', document['10-K'], 0, re.IGNORECASE)
         regex = re.compile(r'>item\s(16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1|I)(A|B)?\.', re.IGNORECASE)
         
@@ -229,7 +267,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         
         if len(test_df.index) == 0:
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\nNo Item matches found')
+                output.write(EDGAR_PATH + '\nNo Item matches found')
                 return
 
         test_df.columns = ['item', 'start', 'end']
@@ -248,7 +286,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_dat = test_df.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+        error_info = EDGAR_PATH + '\n'
         if 'item1' not in pos_dat['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -270,7 +308,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Get rid of out-of-sequence rows
         drop_rows = []
         error_count = 0
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
+        error_info = EDGAR_PATH + '\n' + pos_dat.to_string() + '\n' + '*' * 66 + '\n'
         for i in range(1, pos_dat.shape[0]):
             this_item = items_10K.index( pos_dat.iloc[i]['item'] )
             if this_item == 0:
@@ -343,8 +381,10 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<DOCUMENT>\n<TYPE>RENDERED XBRL.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<PDF.*?</PDF>', '', data, flags=re.S | re.A | re.I )
         #data = re.sub(r'<XBRL.*?</XBRL>', '', data, flags=re.S | re.A | re.IGNORECASE )
 
         # Delete certain HTML that may be embedded in words like ITEM
@@ -360,14 +400,19 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Intelligently remove tables. Some filers use tables as text alignment so keep the ones with < 10% numeric
         data = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=data, flags=re.S | re.A | re.IGNORECASE)
 
-        # Extract text between PART I and PART II. Will probably get 2 matches
-        part_list = re.findall(r'>\s*?PART I[^I].*?FINANCIAL INFORMATION.*?>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
-        use_part_list = 0
-        if len(part_list) > 1 and len(part_list[1]) > len(part_list[0]):
-                use_part_list = 1
-        dataI = part_list[use_part_list]
+        # Change multiple whitespace to single whitespace
+        data = re.sub(r'\s+', repl=' ', string=data, flags=re.S | re.A)
 
-        documentI = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
+        # Extract text between PART I and PART II. Will probably get 2 matches
+        part_list = re.findall(r'>\s*?PART (?:I|1)[^I].*?(?:FINANCIAL (?:INFORMATION|STATEMENTS))?(.*?)>\s*?PART II.*?OTHER INFORMATION', string=data, flags=re.S | re.A | re.I)
+        if len(part_list) == 0:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\nCould not parse Part I')
+                return
+        dataI = max(part_list, key=len_no_tags)
+
+        documentI = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item \\1\\2.', dataI, 0, re.IGNORECASE)
+        documentI = documentI.replace('>item I', '>item 1')
         regex = re.compile(r'>item\s(5|4|3|2|1)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
@@ -375,13 +420,22 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         # Create the dataframe
         dfI = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
+        if len(dfI.index) == 0 :
+            with open('error_NFI_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\ndfI: No Item matches found')
+                return
 
         # Extract text between PART II and end of document
-        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?:>\s*?PART I|$)', string=data, flags=re.S | re.A | re.I)
-        dataII = part_list[use_part_list]
+        part_list = re.findall(r'>\s*?PART II.*?OTHER INFORMATION(.*?)(?=>\s*?PART (?:I|1)|$)', string=data, flags=re.S | re.A | re.I)
+        if len(part_list) == 0:
+            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\nCould not parse Part II')
+                return
+        dataII = max(part_list, key=len_no_tags)
 
-        documentII = re.sub(r'>\s*?(?:I?TEM)S?(?:<.*?>)?(?:\s)*(?:<.*?>)?(5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
-        regex = re.compile(r'>item\s(25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
+        documentII = re.sub(r'>\s*?(?:ITEM)(?:<.*?>)?(?:\s)*(?:<.*?>)?(6|5|4|3|2|1|I)?(?:\s)?(?:\(?\.?(A|B)?\)?)?', '>item 2\\1\\2.', dataII, 0, re.IGNORECASE)
+        documentII = documentII.replace('>item 2I', '>item 21')
+        regex = re.compile(r'>item\s(26|25|24|23|22|21)(A|B)?\.', re.IGNORECASE)
 
         # Use finditer to match the regex
         matches = regex.finditer(documentII)
@@ -389,9 +443,9 @@ def clean_filing(input_filename, filing_type, output_filename):
         # Create the dataframe
         dfII = pd.DataFrame([(x.group(), x.start(), x.end()) for x in matches])
         
-        if len(dfI.index) == 0 or len(dfII.index) == 0 :
-            with open('error_' + output_filename, 'w', encoding='utf-8') as output:
-                output.write(f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\ndfII: No Item matches found\n' + dfI + '\n' + dfII)
+        if len(dfII.index) == 0 :
+            with open('error_NFII_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(EDGAR_PATH + '\ndfII: No Item matches found')
                 return
 
         dfI.columns = ['item', 'start', 'end']
@@ -408,7 +462,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         pos_datII = dfII.sort_values('start', ascending=True)
 
         # Parsing validity checks, bypass this file if improper parse
-        error_info = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{input_filename.split(".")[0].replace("-", "")}/{edgar_filename}\n'
+        error_info = EDGAR_PATH + '\n'
         if 'item1' not in pos_datI['item'].values:
             error_info = error_info + '1 '
             error_info = error_info + 'not found\n'
@@ -417,13 +471,42 @@ def clean_filing(input_filename, filing_type, output_filename):
                 output.write(pos_datI.to_string())
             return
 
-        if 'item21' not in pos_datII['item'].values:
+        if 'item26' not in pos_datII['item'].values:
             error_info = error_info + '21 '
             error_info = error_info + 'not found\n'
             with open('error_' + output_filename, 'w', encoding='utf-8') as output:
                 output.write(error_info)
                 output.write(pos_datII.to_string())
             return
+
+        # Combine duplicate rows to handle submissions with more than one page
+        last_item = ''
+        for index, row in pos_datI.iterrows():
+            if row['item'] == last_item:
+                pos_datI.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+        pos_datI = pos_datI.reset_index(drop=True)
+
+        last_item = ''
+        for index, row in pos_datII.iterrows():
+            if row['item'] == last_item:
+                pos_datII.drop(index, inplace=True)
+            else:
+                last_item = row['item']
+        pos_datII = pos_datII.reset_index(drop=True)
+
+        error_info = ''
+        if delete_out_of_seq(documentI, pos_datI, items_10QI, error_info) > MAX_SEQ_ERRORS:
+        # Write sequence fixes to output file. We can make this optional at some point.    
+            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write('\n' + '*' * 66 + '\n' + pos_datI.to_string())
+
+        if delete_out_of_seq(documentII, pos_datII, items_10QII, error_info) > MAX_SEQ_ERRORS:
+            with open('error_seq_' + output_filename, 'w', encoding='utf-8') as output:
+                output.write(error_info)
+                output.write('\n' + '*' * 66 + '\n' + pos_datII.to_string())
 
         # Set ending address of the section, and add a length column. To calculate length, strip HTML
         pos_datI['end'] = np.append(pos_datI.iloc[1:,1].values, [ 0 ])
@@ -481,57 +564,17 @@ def clean_filing(input_filename, filing_type, output_filename):
             aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentI, pos_datI, index)
 
         for index, row in pos_datII.iterrows():
-            aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
+            try:
+                aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(documentII, pos_datII, index)
+            except:
+                error_info = EDGAR_PATH + '\n'
+                with open('error_' + output_filename, 'w', encoding='utf-8') as output:
+                    output.write('Error in pos_datII:\n' + pos_datII.to_string())
+                return
+
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             output.write(aggregate_text)
-
-"""         # get text in between the appropriate 10-Q tags
-        search_10q = re.search("(?s)(?m)<TYPE>{}.*?(</TEXT>)".format(filing_type), data)
-        try:
-            data_processed = search_10q.group(0)
-        
-            # delete formatting text used to identify 10-K section as its not relevant
-            data_processed = re.sub(pattern="(<TYPE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-
-            # Five more formatting tags are deleted
-            data_processed = re.sub(pattern="(<SEQUENCE>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="(<FILENAME>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="(<DESCRIPTION>).*?(?=<)", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="<head>.*?</head>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-            data_processed = re.sub(pattern="<ix:header.*?</ix:header>", repl='', string=data_processed, flags=re.IGNORECASE | re.DOTALL)
-
-            reg_tables = re.findall(r'<TABLE.*?</TABLE>', data_processed, re.S | re.A | re.IGNORECASE )
-
-            # Add up the sizes of the table sections
-            table_len = len(''.join(reg_tables))
-            num_tables = len(reg_tables)
-            print(f'TABLES number={num_tables:,}, length={table_len:,}')
-
-            data_processed = re.sub(r'<TABLE((?!>Item).)*?</TABLE>', '', data_processed, flags=re.S | re.I)
-
-            # Tags each section of the financial statement with prefix '°Item' for future analysis
-            data_processed = re.sub(r'> +Item|>Item|^Item', '>Â°Item', data_processed, flags=re.DOTALL | re.IGNORECASE | re.MULTILINE)
-            
-            # Removes all HTML tags
-            data_processed = re.sub(r"(?s)<.*?>", ' ', string=data_processed)
-
-            # Replaces all Unicode strings
-            data_processed = re.sub(pattern=r'&(.{2,6});', repl=" ", string=data_processed)
-
-            # Replaces multiple spaces with a single space
-            data_processed = re.sub(pattern=r"(?s) +", repl=" ", string=data_processed)
-
-            # Get rid of blank lines (with or without whitespace)
-            data_processed = re.sub(r'^\s*$\n', repl='', string=data_processed, flags=re.M)
-            
-            with open(output_filename, 'w', encoding='utf-8') as output:
-                output.write(data_processed)
-                
-        except BaseException as e:
-            print('{} could not be cleaned. Exception: {}'.format(input_filename, e))
-            pass
- """
 
  
 def clean_all_filings():
@@ -568,8 +611,8 @@ def clean_all_filings():
 
         for company in company_list:
             # DEBUGGING PURPOSES *************************
-            # if 'INTERNATIONAL BUSINESS' not in company:
-            #     continue
+            if 'AMERICAN FINANCIAL' not in company:
+                continue
 
             company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
             os.chdir(company_dir) # abs path to each company directory
@@ -580,6 +623,10 @@ def clean_all_filings():
                 # cleaning files
                 if 'cleaned' in file: 
                     continue
+
+                if not OVERWRITE_EXISTING:
+                    if os.path.exists('cleaned_' + str(file)):
+                        continue
                 
                 if file.endswith('10-K'): filing_type = '10-K'
                 else: filing_type = '10-Q'
@@ -650,9 +697,9 @@ def move_10k_10q_to_folder():
 
 clean_all_filings()
 
-rename_10_Q_filings()
+#rename_10_Q_filings()
 
-move_10k_10q_to_folder()
+#move_10k_10q_to_folder()
 
 
 
