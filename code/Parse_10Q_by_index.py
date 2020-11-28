@@ -1,3 +1,10 @@
+#
+#   Secondary parsing method for 10-Q filings.
+#
+#       Rather than trying to find each "Item" string in the document (some filings omit these strings, especially
+#       for Item 1), scan the Index or Table of Contents usually found at the beginning of the document. Use that
+#       as a map for each section.
+
 import os
 import glob
 from pathlib2 import Path
