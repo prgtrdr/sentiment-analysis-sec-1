@@ -55,7 +55,10 @@ def clean_filing(input_filename, filing_type, output_filename):
 
     # Extract EDGAR CIK and filename
     CIK = re.search(r'(?:CENTRAL INDEX KEY:\s+)(\d+)', data, re.IGNORECASE)[1]
+    edgar_accession = re.search(r'(?:ACCESSION NUMBER:\s+)([\d-]+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
+    EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{edgar_accession.replace("-", "")}/{edgar_filename}'
+    print(f'Parsing {EDGAR_PATH}')
 
     if filing_type == '10-Q':
         # Step 1. Remove all the encoded sections
@@ -175,7 +178,7 @@ def rename_10_Q_filings():
                 
             if file.startswith('cleaned') and file.endswith('10-Q'):
                 get_date = file[8:18]
-                get_year = file[8:12]
+                # get_year = file[8:12]
                 get_month = int(file[13:15])
 
                 if get_month >= 1 and get_month <= 5:
@@ -213,7 +216,7 @@ def move_10k_10q_to_folder():
                 try:
                     shutil.move(os.path.join(company_dir, file), os.path.join(cleaned_files_dir, file))
                     print('{} moved to cleaned files folder'.format(file))
-                except Exception as e:
+                except:
                     os.remove(os.path.join(cleaned_files_dir, file))
                     shutil.move(os.path.join(company_dir, file), os.path.join(cleaned_files_dir, file))
                     print('{} moved to cleaned files folder'.format(file))
