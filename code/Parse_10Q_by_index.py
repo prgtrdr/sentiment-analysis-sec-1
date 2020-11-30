@@ -24,8 +24,8 @@ CLEAN_10Q = True
 OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
 WRITE_OUTPUT_FILE = True    # Write the clean_ output file, else just print
 SECTION_MARKER = 'Â°'
-COMPANY_SCAN_LIST = ['']  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
-COMPANY_SCAN_CONTINUE = False    # If True, continue scanning when done with first company in list
+COMPANY_SCAN_LIST = ['Northwest Bancshares']   # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_CONTINUE = True        # If True, continue scanning when done with first company in list
 
 # Strip out HTML from string
 class MLStripper(HTMLParser):
@@ -111,6 +111,7 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<DOCUMENT>\n<TYPE>EXCEL.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>JSON.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>PDF.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
+        data = re.sub(r'<PDF.*?</PDF>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>XML.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
@@ -158,32 +159,24 @@ def clean_filing(input_filename, filing_type, output_filename):
                 else:
                     item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item 2\\1\\2.', item_text, flags=re.IGNORECASE)
 
-                # Found an item, look for an anchor
-                item_anchor = row.find('a')
-                if item_anchor:
-                    anchor_goto = item_anchor['href'][1:]
+                # Found an item, look for a usable anchor
+                for item_anchor in row.find_all('a'):
+                    anchor_goto = item_anchor.get('href')[1:]
                     found_anchor = soup.find(id=anchor_goto)
                     if not found_anchor:
                         found_anchor = soup.find(attrs={"name":anchor_goto})
                         if not found_anchor:
-                            print(f'Could not find anchor target for {anchor_goto}. Saved for next row scan.')
-                            # Save item name and placeholder for anchor element in dataframe
-                            contents_df = contents_df.append({
-                                'Item': item_text,
-                                'Begin_tag': None,
-                                'Begin_line': float('nan'),
-                                'Begin_pos': float('nan')
-                            }, ignore_index=True)
-                            continue
-
-                    # Save item_text and found_anchor element in dataframe
+                            continue    # No match for this anchor, try more anchors if exist
+                    # If we got here we have a viable anchor. Save it in dataframe
                     contents_df = contents_df.append({
                         'Item': item_text,
                         'Begin_tag': found_anchor,
                         'Begin_line': found_anchor.sourceline,
                         'Begin_pos': found_anchor.sourcepos
                     }, ignore_index=True)
-                else:
+                    break   # Done with this row
+                else:   # Unique Pythonic for-else
+                    # Valid anchor not found for this row. Save item name and placeholder for anchor element
                     contents_df = contents_df.append({
                         'Item': item_text,
                         'Begin_tag': None,
@@ -194,26 +187,25 @@ def clean_filing(input_filename, filing_type, output_filename):
                 # Did not find an item in this row. If there's something missing from previous row
                 # see if we can fill in the blanks.
                 if len(contents_df) > 0 and math.isnan(contents_df.iloc[len(contents_df)-1,2]):
-                    # Found an item, look for an anchor
-                    item_anchor = row.find('a')
-                    if item_anchor:
-                        anchor_goto = item_anchor['href'][1:]
+                    # Found an item, look for a usable anchor
+                    for item_anchor in row.find_all('a'):
+                        anchor_goto = item_anchor.get('href')[1:]
                         found_anchor = soup.find(id=anchor_goto)
                         if not found_anchor:
-                            found_anchor = soup.find(attrs={"name": anchor_goto})
+                            found_anchor = soup.find(attrs={"name":anchor_goto})
                             if not found_anchor:
-                                continue
-                        # Save item_text and found_anchor element in dataframe
+                                continue    # No match for this anchor, try more anchors if exist
+                        # If we got here we have a viable anchor. Save it in dataframe
                         contents_df.iloc[len(contents_df)-1, 1:4] = [
                             found_anchor.text,
                             found_anchor.sourceline,
                             found_anchor.sourcepos
                         ]
-                    else:
-                        continue    # No item and no anchor found in this row
+                        break   # Found valid anchor in this row
+                    else:   # Unique Pythonic for-else
+                        continue   # No item and no anchor found in this row
                 else:
                     continue    # No item and no previous row item
-                
 
         # Extract the identified section and write to output file
         try:
@@ -245,7 +237,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 # Delete repetitive item text at beginning
                 aggregate_text = aggregate_text[delete_repeated_item(contents_df['Item'][i], aggregate_text):]
                 aggregate_text = re.sub(r'\n(item\s+\d+(?:a|b)?\..*)$', '', aggregate_text, flags=re.IGNORECASE)
-                aggregate_text = re.sub(r'\s*PART II?.*?\n?$', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE | re.MULTILINE)
+                aggregate_text = re.sub(r'^\s*PART II?.*?\n?$', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE | re.MULTILINE)
                 aggregate_text = re.sub(r'\n\s*\d*\s*\n', '\n', aggregate_text)
                 if WRITE_OUTPUT_FILE:
                     output.write(SECTION_MARKER + contents_df['Item'][i] + aggregate_text)
