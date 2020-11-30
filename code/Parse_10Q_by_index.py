@@ -16,11 +16,16 @@ import unicodedata
 import pandas as pd
 from html.parser import HTMLParser
 from io import StringIO
+import html
+import math
 
 CLEAN_10K = False
 CLEAN_10Q = True
-WRITE_OUTPUT_FILE = False
+OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
+WRITE_OUTPUT_FILE = True    # Write the clean_ output file, else just print
 SECTION_MARKER = 'Â°'
+COMPANY_SCAN_LIST = ['']  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_CONTINUE = False    # If True, continue scanning when done with first company in list
 
 # Strip out HTML from string
 class MLStripper(HTMLParser):
@@ -39,6 +44,45 @@ def strip_tags(html):
     s = MLStripper()
     s.feed(html)
     return s.get_data()
+
+"""
+    Function to identify removable tables. Methodology suggested by
+    Loughran-MacDonald https://sraf.nd.edu/data/stage-one-10-x-parse-data/
+"""
+def tablerep(matchobj):
+    text = matchobj.group(0)
+
+    # Strip out all html
+    text = strip_tags(text)
+
+    # Count the letters and numbers
+    numbers = sum(c.isdigit() for c in text)
+    letters = sum(c.isalpha() for c in text)
+    divisor = letters + numbers
+    if divisor == 0:
+        return ''
+
+    # If less than 8% of the chars in the table are numbers, keep it, else delete
+    if (numbers / divisor) < 0.1 or 'Item 1' in text: 
+        return(re.sub(r'</td>', '\n', text, re.IGNORECASE | re.DOTALL))
+#        return matchobj.group(0)
+    else:
+        return ''
+
+def delete_repeated_item(index_text, section_text):
+    """
+    Compare two strings without regard to whitespace characters
+    Input: two strings to be compared
+    Output: 0 if strings do not match, else position of last matching character in section_text
+    """
+    index_text_split = index_text.split()
+    index_text_split[1] = re.sub(r'2?(\d.*)', r'\1', index_text_split[1])
+    index_text_template = r'\s*' + r'\s*'.join(index_text_split)
+    index_text_match = re.match(index_text_template, section_text, flags=re.IGNORECASE)
+    if not index_text_match:
+        return 0
+    else:
+        return index_text_match.end()
 
 def clean_filing(input_filename, filing_type, output_filename):
     """
@@ -71,63 +115,142 @@ def clean_filing(input_filename, filing_type, output_filename):
         data = re.sub(r'<DOCUMENT>\n<TYPE>EX.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
         data = re.sub(r'<ix:header.*?</ix:header>', '', data, flags=re.S | re.A | re.I )
 
+        data = html.unescape(data)    # This function doesn't convert all the characters as needed, like xa0 and apostrophes
+        data = data.replace('\xa0', ' ')
+        data = data.replace('\u200b', ' ')
+        data = data.replace("’", "'")
+        data = data.replace('“', '"')
+        data = data.replace('”', '"')
+
         soup = BeautifulSoup(data, 'html.parser')
 
-        index_table_hdr = soup.find(string=re.compile('(?i)Part.*?I'))
+        index_table_hdr = soup.find(string=re.compile(r'(?i)^\s*Part\s+I'))
         if not index_table_hdr:
-            print('Could not find Index table header')
+            error_text = f'{EDGAR_PATH}: Could not find Index table header'
+            print(error_text)
+            with open('error_not_cleaned_ITH_' + input_filename, 'w') as f:
+                f.write(error_text)                
             return
         index_table = index_table_hdr.find_parent('table')
-        if index_table.name != 'table':
-            print(f"index_table tag is not table, it's {index_table.name}")
+        if not index_table:
+            error_text = f"{EDGAR_PATH}: could not find index_table parent tag."
+            print(error_text)
+            with open('error_not_cleaned_ITT_' + input_filename, 'w') as f:
+                f.write(error_text)                
             return
 
-        # Found the index table. Iterate through each line and find proper anchor tag references
-        contents_df = pd.DataFrame(columns = ['Item', 'Begin_tag', 'Begin_line']) 
+        # Found the index table. Create a dataframe to store locationos of data items.
+        contents_df = pd.DataFrame(columns = ['Item', 'Begin_tag', 'Begin_line', 'Begin_pos']) 
+        contents_df['Begin_tag'] = contents_df['Begin_tag'].astype(str)
+        contents_df[['Begin_line', 'Begin_pos']] = contents_df[['Begin_line', 'Begin_pos']].astype(float)
+
+        # Iterate through each line and find proper anchor tag references
         in_part = 1     # initially in Part I
         for row in index_table.find_all('tr'):
             if row.find(string=re.compile('(?i)Part.*?II')):
                 in_part = 2
 
             # First get the item text, if any. Clean it up depending on what Part it's in.
-            item_text = row.find(string=re.compile('(?i)item'))
-            if not item_text:
-                print(f'item text not in row:\n{row}')
-                continue    # Here we should look to see if related to previous item
-            if in_part == 1:
-                item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item \\1\\2.', item_text, flags=re.IGNORECASE)
-            else:
-                item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item 2\\1\\2.', item_text, flags=re.IGNORECASE)
+            item_text = row.find(string=re.compile('(?i)item\s+\d'))
+            if item_text:
+                if in_part == 1:
+                    item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item \\1\\2.', item_text, flags=re.IGNORECASE)
+                else:
+                    item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item 2\\1\\2.', item_text, flags=re.IGNORECASE)
 
-            # Found an item, look for an anchor
-            item_anchor = row.find('a')
-            if item_anchor:
-                anchor_goto = item_anchor['href'][1:]
-                found_anchor = soup.find('a', {"id":anchor_goto})
-                if not found_anchor:
-                    found_anchor = soup.find('a', {"name":anchor_goto})
+                # Found an item, look for an anchor
+                item_anchor = row.find('a')
+                if item_anchor:
+                    anchor_goto = item_anchor['href'][1:]
+                    found_anchor = soup.find(id=anchor_goto)
                     if not found_anchor:
-                        print(f'Could not find anchor target for {anchor_goto}.')
-                        # Save item name and placeholder for anchor element in dataframe
-                        contents_df = contents_df.append({'Item': item_text}, ignore_index=True)
-                        return
+                        found_anchor = soup.find(attrs={"name":anchor_goto})
+                        if not found_anchor:
+                            print(f'Could not find anchor target for {anchor_goto}. Saved for next row scan.')
+                            # Save item name and placeholder for anchor element in dataframe
+                            contents_df = contents_df.append({
+                                'Item': item_text,
+                                'Begin_tag': None,
+                                'Begin_line': float('nan'),
+                                'Begin_pos': float('nan')
+                            }, ignore_index=True)
+                            continue
+
                     # Save item_text and found_anchor element in dataframe
-                    contents_df = contents_df.append({'Item': item_text, 'Begin_tag': found_anchor, 'Begin_line': found_anchor.sourceline}, ignore_index=True)
+                    contents_df = contents_df.append({
+                        'Item': item_text,
+                        'Begin_tag': found_anchor,
+                        'Begin_line': found_anchor.sourceline,
+                        'Begin_pos': found_anchor.sourcepos
+                    }, ignore_index=True)
+                else:
+                    contents_df = contents_df.append({
+                        'Item': item_text,
+                        'Begin_tag': None,
+                        'Begin_line': float('nan'),
+                        'Begin_pos': float('nan')
+                    }, ignore_index=True)
             else:
-                print(f'Item anchor not found in row={row}')
+                # Did not find an item in this row. If there's something missing from previous row
+                # see if we can fill in the blanks.
+                if len(contents_df) > 0 and math.isnan(contents_df.iloc[len(contents_df)-1,2]):
+                    # Found an item, look for an anchor
+                    item_anchor = row.find('a')
+                    if item_anchor:
+                        anchor_goto = item_anchor['href'][1:]
+                        found_anchor = soup.find(id=anchor_goto)
+                        if not found_anchor:
+                            found_anchor = soup.find(attrs={"name": anchor_goto})
+                            if not found_anchor:
+                                continue
+                        # Save item_text and found_anchor element in dataframe
+                        contents_df.iloc[len(contents_df)-1, 1:4] = [
+                            found_anchor.text,
+                            found_anchor.sourceline,
+                            found_anchor.sourcepos
+                        ]
+                    else:
+                        continue    # No item and no anchor found in this row
+                else:
+                    continue    # No item and no previous row item
+                
+
+        # Extract the identified section and write to output file
+        try:
+            contents_df[['Begin_line', 'Begin_pos']] = contents_df[['Begin_line', 'Begin_pos']].astype(int)
+        except:
+            error_text = f"Couldn't find some tags for {EDGAR_PATH}.\n{contents_df}"
+            print(error_text)
+            with open('error_not_cleaned_MT_' + input_filename, 'w') as f:
+                f.write(error_text)                
+            return  # Probably means we couldn't find tags, abort this file
 
         with open(output_filename, 'w', encoding='utf-8') as output:
             for i in range(0, len(contents_df)):
-                start = contents_df['Begin_line'][i]
-                stop = 1000000 if i+1 == len(contents_df) else contents_df['Begin_line'][i+1]-1
-                aggregate_text = '\n'.join(data.splitlines()[start: stop])
-                aggregate_text = re.sub(r'<TABLE.*?</TABLE>', repl='', string=aggregate_text, flags=re.S | re.A | re.IGNORECASE)
+                # Use Beautiful Soup sourceline and sourcepos to determine where text is in the main buffer
+                sl = data.splitlines()
+                start = contents_df['Begin_line'][i]-1
+                stop = len(sl)-1 if i+1 == len(contents_df) else contents_df['Begin_line'][i+1]-1
+
+                # Must do the end slice first in case same line
+                sl[stop] = sl[stop] if i+1 == len(contents_df) else sl[stop][:contents_df['Begin_pos'][i+1]]
+                sl[start] = sl[start][contents_df['Begin_pos'][i]:]
+                aggregate_text = '\n'.join(sl[start: stop+1])
+
+                # Clean the text
+                aggregate_text = re.sub(r'<TABLE.*?</TABLE>', repl=tablerep, string=aggregate_text, flags=re.S | re.A | re.IGNORECASE)
+                aggregate_text = re.sub(r'<div.*?>', '\n', aggregate_text, flags=re.IGNORECASE)
                 aggregate_text = strip_tags(aggregate_text)
-                aggregate_text = re.sub(r'\s*\d*\s*(Table of Contents|PART I).*?\n+', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE)
+                aggregate_text = re.sub(r'\s*\d*\s*Table of Contents', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE | re.MULTILINE)
+                # Delete repetitive item text at beginning
+                aggregate_text = aggregate_text[delete_repeated_item(contents_df['Item'][i], aggregate_text):]
+                aggregate_text = re.sub(r'\n(item\s+\d+(?:a|b)?\..*)$', '', aggregate_text, flags=re.IGNORECASE)
+                aggregate_text = re.sub(r'\s*PART II?.*?\n?$', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE | re.MULTILINE)
                 aggregate_text = re.sub(r'\n\s*\d*\s*\n', '\n', aggregate_text)
-                print(f"Item={contents_df['Item'][i]}\n*************************\n{SECTION_MARKER}{aggregate_text}\n************************\n")
                 if WRITE_OUTPUT_FILE:
-                    output.write(SECTION_MARKER + aggregate_text)
+                    output.write(SECTION_MARKER + contents_df['Item'][i] + aggregate_text)
+                else:
+                    print(f"*****\n{SECTION_MARKER}{contents_df['Item'][i]} {aggregate_text}\n*****")
 
 def clean_all_filings():
     """Clean all filings in sec-filings directory"""
@@ -137,10 +260,14 @@ def clean_all_filings():
 
     company_list = os.listdir(os.path.join(project_dir, 'sec-filings-downloaded'))  
 
+    keep_going = False
     for company in company_list:
-        # DEBUGGING PURPOSES *************************
-        # if 'INTERNATIONAL BUSINESS' not in company:
-        #     continue
+        # User can specify a list of company names to include
+        if not any(x in company for x in COMPANY_SCAN_LIST) and not keep_going:
+            continue
+        else:
+            if COMPANY_SCAN_CONTINUE:
+                keep_going = True
 
         company_dir = os.path.join(project_dir, 'sec-filings-downloaded', company)
         os.chdir(company_dir) # abs path to each company directory
@@ -152,7 +279,11 @@ def clean_all_filings():
             if 'error' not in file or file.endswith('txt'): 
                 continue
 
-            file = re.sub(r'error_(NFI_)?(seq_)?cleaned_', '', file )
+            file = re.sub(r'error_(not_)?(NFI_)?(NFII_)?(seq_)?cleaned_(MT_|ITH_|ITT_)?', '', file )
+
+            if not OVERWRITE_EXISTING:
+                if os.path.exists('cleaned_' + str(file)):
+                    continue
             
             if file.endswith('10-K'): filing_type = '10-K'
             else: filing_type = '10-Q'
