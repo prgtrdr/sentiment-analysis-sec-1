@@ -21,10 +21,10 @@ import math
 
 CLEAN_10K = False
 CLEAN_10Q = True
-OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
+OVERWRITE_EXISTING = True  # If True, overwrite existing cleaned files, else skip
 WRITE_OUTPUT_FILE = True    # Write the clean_ output file, else just print
 SECTION_MARKER = 'Â°'
-COMPANY_SCAN_LIST = ['Northwest Bancshares']   # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_LIST = ['']   # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
 COMPANY_SCAN_CONTINUE = True        # If True, continue scanning when done with first company in list
 
 # Strip out HTML from string
@@ -76,6 +76,10 @@ def delete_repeated_item(index_text, section_text):
     Output: 0 if strings do not match, else position of last matching character in section_text
     """
     index_text_split = index_text.split()
+    if index_text_split[0] == 'item':
+        index_text_split[0] += r'(s)?'   # Allow for the text to contain 'Items' or 'Item'
+    else:
+        index_text_split[0] = re.escape(index_text_split[0])
     index_text_split[1] = re.sub(r'2?(\d.*)', r'\1', index_text_split[1])
     index_text_template = r'\s*' + r'\s*'.join(index_text_split)
     index_text_match = re.match(index_text_template, section_text, flags=re.IGNORECASE)
@@ -134,13 +138,18 @@ def clean_filing(input_filename, filing_type, output_filename):
             return
         index_table = index_table_hdr.find_parent('table')
         if not index_table:
-            error_text = f"{EDGAR_PATH}: could not find index_table parent tag."
-            print(error_text)
-            with open('error_not_cleaned_ITT_' + input_filename, 'w') as f:
-                f.write(error_text)                
-            return
+            # Alternate method of finding the index table
+            for index_table in soup.find_all('table'):
+                if index_table.find(string=re.compile(r'(?i)^\s*item\s+(\d+)(a|b)?\.?')):
+                    break
+            else:
+                error_text = f"{EDGAR_PATH}: could not find index_table parent tag."
+                print(error_text)
+                with open('error_not_cleaned_ITT_' + input_filename, 'w') as f:
+                    f.write(error_text)                
+                return
 
-        # Found the index table. Create a dataframe to store locationos of data items.
+        # Found the index table. Create a dataframe to store locations of data items.
         contents_df = pd.DataFrame(columns = ['Item', 'Begin_tag', 'Begin_line', 'Begin_pos']) 
         contents_df['Begin_tag'] = contents_df['Begin_tag'].astype(str)
         contents_df[['Begin_line', 'Begin_pos']] = contents_df[['Begin_line', 'Begin_pos']].astype(float)
@@ -152,7 +161,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 in_part = 2
 
             # First get the item text, if any. Clean it up depending on what Part it's in.
-            item_text = row.find(string=re.compile('(?i)item\s+\d'))
+            item_text = row.find(string=re.compile(r'(?i)item\s+\d'))
             if item_text:
                 if in_part == 1:
                     item_text = re.sub(r'item\s+(\d+)(a|b)?\.?', 'item \\1\\2.', item_text, flags=re.IGNORECASE)
@@ -240,7 +249,7 @@ def clean_filing(input_filename, filing_type, output_filename):
                 aggregate_text = re.sub(r'^\s*PART II?.*?\n?$', ' ', aggregate_text, flags=re.DOTALL| re.IGNORECASE | re.MULTILINE)
                 aggregate_text = re.sub(r'\n\s*\d*\s*\n', '\n', aggregate_text)
                 if WRITE_OUTPUT_FILE:
-                    output.write(SECTION_MARKER + contents_df['Item'][i] + aggregate_text)
+                    output.write(SECTION_MARKER + contents_df['Item'][i] + ' ' + aggregate_text)
                 else:
                     print(f"*****\n{SECTION_MARKER}{contents_df['Item'][i]} {aggregate_text}\n*****")
 
