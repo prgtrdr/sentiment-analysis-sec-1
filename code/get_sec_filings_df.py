@@ -1,4 +1,4 @@
-# import edgar
+import edgar
 import os, time
 from pathlib2 import Path
 import pandas as pd
@@ -15,14 +15,14 @@ DOWNLOAD_FROM_EDGAR = True
 project_dir = directory.get_project_dir()
 os.chdir(os.path.join(project_dir, 'sec-filings-index'))
 
-# filing_year = 2019   # uncomment to run, choose year to get all edgar filings from
+# filing_year = 2020   # uncomment to run, choose year to get all edgar filings from
 # edgar.download_index(os.getcwd(), filing_year)
 
 # Get list of all DFs 
 table_list = []
 
 for i in os.listdir():
-    if i.endswith('.tsv'):
+    if not os.path.isdir(i) and i.endswith('.tsv'):
         table_list.append(pd.read_csv(i, sep='|', header=None, encoding='latin-1', parse_dates=[3], dtype={0: int}))
 
 # append all dfs into a single df
@@ -80,12 +80,12 @@ def get_company_name_from_cik(df, cik_list):
         company_list.append(company_series.values[0])
     return company_list
 
-companies_list = ['ADT Inc.']
+companies_list = ['']
 
-company_name_search(df_cik, companies_list)
+# company_name_search(df_cik, companies_list)
 
-cik_list = get_cik_from_company_name(df_cik, companies_list)    # Just get these companies' data
-# cik_list = get_cik_from_company_name(df_cik)  # Get all company data
+# cik_list = get_cik_from_company_name(df_cik, companies_list)    # Just get these companies' data
+cik_list = get_cik_from_company_name(df_cik)  # Get all company data
 
 # ## download data
 def download_filings(cik_num_list, from_date='2016-01-01'):

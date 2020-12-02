@@ -15,11 +15,11 @@ import html
 SECTION_MARKER = 'Â°'
 MAX_SEQ_ERRORS = 1  # Set to a really high value to disable sequence error logging
 USE_EDGAR_FILENAME = False  # If true, use names of files downloaded using sec-utils
-CLEAN_10K = False   # Clean 10-K filings
+CLEAN_10K = True   # Clean 10-K filings
 CLEAN_10Q = True    # Clean 10-Q filings
 OVERWRITE_EXISTING = False  # If True, overwrite existing cleaned files, else skip
 EDGAR_PATH = ''     # Will contain full path to the EDGAR website document being parsed
-COMPANY_SCAN_LIST = ['VONAGE']  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
+COMPANY_SCAN_LIST = ['']  # List of company name strings to limit parse, e.g., ['ABBOTT', 'AMERICAN FINANCIAL']
 COMPANY_SCAN_CONTINUE = True    # If True, continue scanning when done with first company in list
 
 # List of items_10K found in filings, in order of appearance.

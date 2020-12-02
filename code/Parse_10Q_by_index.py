@@ -131,7 +131,7 @@ def clean_filing(input_filename, filing_type, output_filename):
 
         index_table_hdr = soup.find(string=re.compile(r'(?i)^\s*Part\s+I'))
         if not index_table_hdr:
-            error_text = f'{EDGAR_PATH}: Could not find Index table header'
+            error_text = f'{EDGAR_PATH}\nCould not find Index table header'
             print(error_text)
             with open('error_not_cleaned_ITH_' + input_filename, 'w') as f:
                 f.write(error_text)                
@@ -140,10 +140,10 @@ def clean_filing(input_filename, filing_type, output_filename):
         if not index_table:
             # Alternate method of finding the index table
             for index_table in soup.find_all('table'):
-                if index_table.find(string=re.compile(r'(?i)^\s*item\s+(\d+)(a|b)?\.?')):
+                if len(index_table.find_all(string=re.compile(r'(?i)^\s*item\s+(\d+)(a|b)?\.?'))) > 2:
                     break
             else:
-                error_text = f"{EDGAR_PATH}: could not find index_table parent tag."
+                error_text = f"{EDGAR_PATH}\ncould not find index_table parent tag."
                 print(error_text)
                 with open('error_not_cleaned_ITT_' + input_filename, 'w') as f:
                     f.write(error_text)                
@@ -216,10 +216,15 @@ def clean_filing(input_filename, filing_type, output_filename):
                 else:
                     continue    # No item and no previous row item
 
+        # Clean up the contents dataframe. If we couldn't find a section, remove it.
+        contents_df = contents_df.dropna()
+        contents_df = contents_df.reset_index(drop=True)
+
         # Extract the identified section and write to output file
         try:
             contents_df[['Begin_line', 'Begin_pos']] = contents_df[['Begin_line', 'Begin_pos']].astype(int)
         except:
+            # ** Should never reach this code
             error_text = f"Couldn't find some tags for {EDGAR_PATH}.\n{contents_df}"
             print(error_text)
             with open('error_not_cleaned_MT_' + input_filename, 'w') as f:
@@ -354,6 +359,6 @@ def move_10k_10q_to_folder():
                     print('{} moved to cleaned files folder'.format(file))
 
 # Mainline code execution
-clean_all_filings()
-#rename_10_Q_filings()
-#move_10k_10q_to_folder()
+#clean_all_filings()
+rename_10_Q_filings()
+move_10k_10q_to_folder()
