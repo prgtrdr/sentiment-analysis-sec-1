@@ -14,7 +14,8 @@ from nltk.stem import PorterStemmer
 # to vectorize filing
 from sklearn.feature_extraction.text import CountVectorizer
 
-PROCESS_10Q = False
+PROCESS_10K = False
+PROCESS_10Q = True
 
 items_10K = [
     'item 1',    #0
@@ -50,17 +51,17 @@ items_10K = [
 ]
 
 items_10Q = [
-    'item I1',   #0
-    'item I2',   #1
-    'item I3',   #2
-    'item I4'    #3
-    'item II1',  #4
-    'item II1a', #5
-    'item II2',  #6
-    'item II3',  #7
-    'item II4',  #8
-    'item II5',  #9
-    'item II6'   #10
+    'item 1',   #0
+    'item 2',   #1
+    'item 3',   #2
+    'item 4'    #3
+    'item 21',  #4
+    'item 21a', #5
+    'item 22',  #6
+    'item 23',  #7
+    'item 24',  #8
+    'item 25',  #9
+    'item 26'   #10
 ]
 
 # # Preprocessing
@@ -140,48 +141,49 @@ for company in company_dir_list:
             filing_quarter = str(file[8:10])
             filing_year = file[11:15]            
             ten_q_dict[str(filing_quarter) + '_' + filing_year] = file
-            
-    # Calculate cosine similarity for 10-K and append to df
-    try:
-        max_ten_k_year = max(ten_k_dict, key=ten_k_dict.get)
-        year_before_max_ten_k = max_ten_k_year - 1
-        print(f'{companies_done}: Calc 10-K sim {company}: {max_ten_k_year} vs {year_before_max_ten_k}')
 
-        with open(ten_k_dict[max_ten_k_year], 'r', encoding='utf-8') as file:
-            latest_ten_k = file.read()
-        with open(ten_k_dict[year_before_max_ten_k], 'r', encoding='utf-8') as file:
-            previous_ten_k = file.read()
+    if PROCESS_10K:            
+        # Calculate cosine similarity for 10-K and append to df
+        try:
+            max_ten_k_year = max(ten_k_dict, key=ten_k_dict.get)
+            year_before_max_ten_k = max_ten_k_year - 1
+            print(f'{companies_done}: Calc 10-K sim {company}: {max_ten_k_year} vs {year_before_max_ten_k}')
 
-        # Calculate similarity for entire document
-        ten_k_vec = vectorize_and_preprocess_filings([latest_ten_k, previous_ten_k])
-        cosine_sim_ten_k = calculate_cosine_similarity(ten_k_vec.toarray()[0], ten_k_vec.toarray()[1])
+            with open(ten_k_dict[max_ten_k_year], 'r', encoding='utf-8') as file:
+                latest_ten_k = file.read()
+            with open(ten_k_dict[year_before_max_ten_k], 'r', encoding='utf-8') as file:
+                previous_ten_k = file.read()
 
-        ten_k_result_dict = {
-            'company': company,
-            'latest_filing_dt': ten_k_dict[max_ten_k_year][8:18],
-            'previous_filing_dt': ten_k_dict[year_before_max_ten_k][8:18],
-            'cosine_similarity': cosine_sim_ten_k
-        }
+            # Calculate similarity for entire document
+            ten_k_vec = vectorize_and_preprocess_filings([latest_ten_k, previous_ten_k])
+            cosine_sim_ten_k = calculate_cosine_similarity(ten_k_vec.toarray()[0], ten_k_vec.toarray()[1])
 
-        # Split each document into individual sections (items)
-        latest_ten_k_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, latest_ten_k.split('Â°'))).items())
-        previous_ten_k_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, previous_ten_k.split('Â°'))).items())
+            ten_k_result_dict = {
+                'company': company,
+                'latest_filing_dt': ten_k_dict[max_ten_k_year][8:18],
+                'previous_filing_dt': ten_k_dict[year_before_max_ten_k][8:18],
+                'cosine_similarity': cosine_sim_ten_k
+            }
 
-        # Calculate similarity for each individual section
-        for latest_section, latest_text in latest_ten_k_sections.items():
-            if latest_section not in previous_ten_k_sections:
-                continue
-            else:
-                ten_k_vec = vectorize_and_preprocess_filings([latest_text, previous_ten_k_sections[latest_section]])
-                cosine_sim_ten_k = calculate_cosine_similarity(ten_k_vec.toarray()[0], ten_k_vec.toarray()[1])
-                ten_k_result_dict[latest_section] = cosine_sim_ten_k
-                ten_k_result_dict[(latest_section+'_lwc')] = len(word_tokenize(latest_text))
-                ten_k_result_dict[(latest_section+'_pwc')] = len(word_tokenize(previous_ten_k_sections[latest_section]))
+            # Split each document into individual sections (items)
+            latest_ten_k_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, latest_ten_k.split('Â°'))).items())
+            previous_ten_k_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, previous_ten_k.split('Â°'))).items())
 
-        df_ten_k_results = df_ten_k_results.append(ten_k_result_dict, ignore_index=True)
-    except BaseException as e:
-         print('Exception during 10-K calc for {}: {}'.format(company, e))
-         continue
+            # Calculate similarity for each individual section
+            for latest_section, latest_text in latest_ten_k_sections.items():
+                if latest_section not in previous_ten_k_sections:
+                    continue
+                else:
+                    ten_k_vec = vectorize_and_preprocess_filings([latest_text, previous_ten_k_sections[latest_section]])
+                    cosine_sim_ten_k = calculate_cosine_similarity(ten_k_vec.toarray()[0], ten_k_vec.toarray()[1])
+                    ten_k_result_dict[latest_section] = cosine_sim_ten_k
+                    ten_k_result_dict[(latest_section+'_lwc')] = len(word_tokenize(latest_text))
+                    ten_k_result_dict[(latest_section+'_pwc')] = len(word_tokenize(previous_ten_k_sections[latest_section]))
+
+            df_ten_k_results = df_ten_k_results.append(ten_k_result_dict, ignore_index=True)
+        except BaseException as e:
+            print('Exception during 10-K calc for {}: {}'.format(company, e))
+            continue
 
     # calculate cosine similarity for 10-Q and append to df
     if PROCESS_10Q:
@@ -197,18 +199,37 @@ for company in company_dir_list:
 
             ten_q_vec = vectorize_and_preprocess_filings([latest_ten_q, previous_ten_q])
             cosine_sim_ten_q = calculate_cosine_similarity(ten_q_vec.toarray()[0], ten_q_vec.toarray()[1])
-            df_ten_q_results = df_ten_q_results.append({'company': company, 
-                                                        'cosine_similarity': cosine_sim_ten_q, 
-                                                        'latest_filing_dt': ten_q_dict[max_ten_q_quarter_year][11:21],
-                                                        'latest_filing_quarter': ten_q_dict[max_ten_q_quarter_year][8:10],
-                                                        'previous_filing_dt': ten_q_dict[year_before_max_ten_q][11:21],
-                                                        'previous_filing_quarter': ten_q_dict[year_before_max_ten_q][8:10]}, 
-                                                    ignore_index=True)
+
+            ten_q_result_dict = {
+                'company': company,
+                'latest_filing_dt': ten_q_dict[max_ten_q_quarter_year][11:21],
+                'latest_filing_quarter': ten_q_dict[max_ten_q_quarter_year][8:10],
+                'previous_filing_dt': ten_q_dict[year_before_max_ten_q][11:21],
+                'previous_filing_quarter': ten_q_dict[year_before_max_ten_q][8:10],
+                'cosine_similarity': cosine_sim_ten_q
+            }
+
+            # Split each document into individual sections (items)
+            latest_ten_q_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, latest_ten_q.split('Â°'))).items())
+            previous_ten_q_sections = dict((k.lower(), v) for k,v in dict(x.split(".",1) for x in filter(None, previous_ten_q.split('Â°'))).items())
+
+            # Calculate similarity for each individual section
+            for latest_section, latest_text in latest_ten_q_sections.items():
+                if latest_section not in previous_ten_q_sections:
+                    continue
+                else:
+                    ten_q_vec = vectorize_and_preprocess_filings([latest_text, previous_ten_q_sections[latest_section]])
+                    cosine_sim_ten_q = calculate_cosine_similarity(ten_q_vec.toarray()[0], ten_q_vec.toarray()[1])
+                    ten_q_result_dict[latest_section] = cosine_sim_ten_q
+                    ten_q_result_dict[(latest_section+'_lwc')] = len(word_tokenize(latest_text))
+                    ten_q_result_dict[(latest_section+'_pwc')] = len(word_tokenize(previous_ten_q_sections[latest_section]))
+
+            df_ten_q_results = df_ten_q_results.append({ten_q_result_dict, ignore_index=True)
         except BaseException as e:
             print('Exception during 10-Q calc for {}: {}'.format(company, e))
             continue
-
-df_ten_k_results.to_csv('../../../data/ten_k_results.csv', encoding='utf-8', index=False)
+if PROCESS_10K:
+    df_ten_k_results.to_csv('../../../data/ten_k_results.csv', encoding='utf-8', index=False)
 
 if PROCESS_10Q:
     df_ten_q_results.to_csv('../../../data/ten_q_results.csv', encoding='utf-8', index=False)
