@@ -5,6 +5,7 @@ from pathlib2 import Path
 import re
 import shutil
 import ProjectDirectory as directory
+import json
 
 # preprocess filings
 import string
@@ -117,8 +118,8 @@ project_dir = directory.get_project_dir()
 company_dir_list = os.listdir(os.chdir(os.path.join(project_dir, 'sec-filings-downloaded')))
 
 # initialize empty dataframes with appropriate cols
-df_ten_k_results = pd.DataFrame(columns=['company', 'cosine_similarity', 'latest_filing_dt', 'previous_filing_dt'] + items_10K)
-df_ten_q_results = pd.DataFrame(columns=['company', 'cosine_similarity', 'latest_filing_dt', 'latest_filing_quarter', 
+df_ten_k_results = pd.DataFrame(columns=['company', 'comp_URL', 'cosine_similarity', 'latest_filing_dt', 'previous_filing_dt'] + items_10K)
+df_ten_q_results = pd.DataFrame(columns=['company', 'comp_URL', 'cosine_similarity', 'latest_filing_dt', 'latest_filing_quarter', 
                                         'previous_filing_dt', 'previous_filing_quarter'] + items_10Q)
 
 companies_done = 0
@@ -150,8 +151,12 @@ for company in company_dir_list:
             print(f'{companies_done}: Calc 10-K sim {company}: {max_ten_k_year} vs {year_before_max_ten_k}')
 
             with open(ten_k_dict[max_ten_k_year], 'r', encoding='utf-8') as file:
+                latest_ten_k_header_data = file.readline()
+                latest_ten_k_header = json.loads(latest_ten_k_header_data)
                 latest_ten_k = file.read()
             with open(ten_k_dict[year_before_max_ten_k], 'r', encoding='utf-8') as file:
+                previous_ten_k_header_data = file.readline()
+                previous_ten_k_header = json.loads(previous_ten_k_header_data)
                 previous_ten_k = file.read()
 
             # Calculate similarity for entire document
@@ -160,6 +165,7 @@ for company in company_dir_list:
 
             ten_k_result_dict = {
                 'company': company,
+                'comp_URL': f'https://docoh.com/filing/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["accession_number"]}/diff/{latest_ten_k_header["accession_number"]}',
                 'latest_filing_dt': ten_k_dict[max_ten_k_year][8:18],
                 'previous_filing_dt': ten_k_dict[year_before_max_ten_k][8:18],
                 'cosine_similarity': cosine_sim_ten_k
@@ -193,8 +199,12 @@ for company in company_dir_list:
             print(f'{companies_done}: Calc 10-Q sim {company}: {max_ten_q_quarter_year} vs {year_before_max_ten_q}')
 
             with open(ten_q_dict[max_ten_q_quarter_year], 'r', encoding='utf-8') as file:
+                latest_ten_q_header_data = file.readline()
+                latest_ten_q_header = json.loads(latest_ten_q_header_data)
                 latest_ten_q = file.read()
             with open(ten_q_dict[year_before_max_ten_q], 'r', encoding='utf-8') as file:
+                previous_ten_q_header_data = file.readline()
+                previous_ten_q_header = json.loads(previous_ten_q_header_data)
                 previous_ten_q = file.read()
 
             ten_q_vec = vectorize_and_preprocess_filings([latest_ten_q, previous_ten_q])
@@ -202,6 +212,7 @@ for company in company_dir_list:
 
             ten_q_result_dict = {
                 'company': company,
+                'comp_URL': f'https://docoh.com/filing/{previous_ten_q_header["CIK"]}/{previous_ten_q_header["accession_number"]}/diff/{latest_ten_q_header["accession_number"]}',
                 'latest_filing_dt': ten_q_dict[max_ten_q_quarter_year][11:21],
                 'latest_filing_quarter': ten_q_dict[max_ten_q_quarter_year][8:10],
                 'previous_filing_dt': ten_q_dict[year_before_max_ten_q][11:21],
@@ -224,7 +235,7 @@ for company in company_dir_list:
                     ten_q_result_dict[(latest_section+'_lwc')] = len(word_tokenize(latest_text))
                     ten_q_result_dict[(latest_section+'_pwc')] = len(word_tokenize(previous_ten_q_sections[latest_section]))
 
-            df_ten_q_results = df_ten_q_results.append({ten_q_result_dict, ignore_index=True)
+            df_ten_q_results = df_ten_q_results.append(ten_q_result_dict, ignore_index=True)
         except BaseException as e:
             print('Exception during 10-Q calc for {}: {}'.format(company, e))
             continue

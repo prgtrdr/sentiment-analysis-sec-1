@@ -10,6 +10,7 @@ import ProjectDirectory as directory
 from io import StringIO
 from html.parser import HTMLParser
 import html
+import json
 
 # Global variables. Make these settable from the command line.
 SECTION_MARKER = 'Â°'
@@ -177,6 +178,12 @@ def clean_filing(input_filename, filing_type, output_filename):
     edgar_accession = re.search(r'(?:ACCESSION NUMBER:\s+)([\d-]+)', data, re.IGNORECASE)[1]
     edgar_filename = re.search(r'(?:<FILENAME>)(.+)\n', data, re.IGNORECASE)[1]
     EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{edgar_accession.replace("-", "")}/{edgar_filename}'
+
+    header_data = {
+        "CIK": CIK,
+        "edgar_accession": edgar_accession,
+        "edgar_filename": edgar_filename
+    }
 
     if filing_type == '10-K':
         # Step 1. Remove all the encoded sections
@@ -372,6 +379,8 @@ def clean_filing(input_filename, filing_type, output_filename):
             aggregate_text = aggregate_text + SECTION_MARKER + extract_raw(document['10-K'], pos_dat, index)
 
         with open(output_filename, 'w', encoding='utf-8') as output:
+            # Write the SEC file numbers for later lookup
+            output.write(json.dumps(header_data) + '\n')
             output.write(aggregate_text)
     else:
         # Process 10Q
@@ -574,8 +583,8 @@ def clean_filing(input_filename, filing_type, output_filename):
                     output.write(EDGAR_PATH + '\nError in pos_datII:\n' + pos_datII.to_string())
                 return
 
-
         with open(output_filename, 'w', encoding='utf-8') as output:
+            output.write(json.dumps(header_data)  + '\n')
             output.write(aggregate_text)
 
  
