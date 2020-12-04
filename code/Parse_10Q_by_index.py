@@ -108,6 +108,12 @@ def clean_filing(input_filename, filing_type, output_filename):
     EDGAR_PATH = f'https://www.sec.gov/Archives/edgar/data/{CIK}/{edgar_accession.replace("-", "")}/{edgar_filename}'
     print(f'Parsing {EDGAR_PATH}')
 
+    header_data = {
+        "CIK": CIK,
+        "edgar_accession": edgar_accession,
+        "edgar_filename": edgar_filename
+    }
+
     if filing_type == '10-Q':
         # Step 1. Remove all the encoded sections
         data = re.sub(r'<DOCUMENT>\n<TYPE>GRAPHIC.*?</DOCUMENT>', '', data, flags=re.S | re.A | re.I )
@@ -232,6 +238,7 @@ def clean_filing(input_filename, filing_type, output_filename):
             return  # Probably means we couldn't find tags, abort this file
 
         with open(output_filename, 'w', encoding='utf-8') as output:
+            output.write(json.dumps(header_data) + '\n')
             for i in range(0, len(contents_df)):
                 # Use Beautiful Soup sourceline and sourcepos to determine where text is in the main buffer
                 sl = data.splitlines()
