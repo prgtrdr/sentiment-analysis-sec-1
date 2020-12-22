@@ -584,7 +584,8 @@ def clean_filing(input_filename, filing_type, output_filename):
                 return
 
         with open(output_filename, 'w', encoding='utf-8') as output:
-            output.write(json.dumps(header_data)  + '\n')
+            # Write the SEC file numbers for later lookup
+            output.write(json.dumps(header_data) + '\n')
             output.write(aggregate_text)
 
  
@@ -710,11 +711,11 @@ def move_10k_10q_to_folder():
                     shutil.move(os.path.join(company_dir, file), os.path.join(cleaned_files_dir, file))
                     print('{} moved to cleaned files folder'.format(file))
 
-clean_all_filings()
+#clean_all_filings()
 
-#rename_10_Q_filings()
+rename_10_Q_filings()
 
-#move_10k_10q_to_folder()
+move_10k_10q_to_folder()
 
 
 

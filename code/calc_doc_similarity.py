@@ -55,7 +55,7 @@ items_10Q = [
     'item 1',   #0
     'item 2',   #1
     'item 3',   #2
-    'item 4'    #3
+    'item 4',   #3
     'item 21',  #4
     'item 21a', #5
     'item 22',  #6
@@ -165,7 +165,7 @@ for company in company_dir_list:
 
             ten_k_result_dict = {
                 'company': company,
-                'comp_URL': f'https://docoh.com/filing/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["accession_number"]}/diff/{latest_ten_k_header["accession_number"]}',
+                'comp_URL': f'https://docoh.com/filing/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["edgar_accession"]}/diff/{latest_ten_k_header["edgar_accession"]}',
                 'latest_filing_dt': ten_k_dict[max_ten_k_year][8:18],
                 'previous_filing_dt': ten_k_dict[year_before_max_ten_k][8:18],
                 'cosine_similarity': cosine_sim_ten_k
@@ -212,7 +212,7 @@ for company in company_dir_list:
 
             ten_q_result_dict = {
                 'company': company,
-                'comp_URL': f'https://docoh.com/filing/{previous_ten_q_header["CIK"]}/{previous_ten_q_header["accession_number"]}/diff/{latest_ten_q_header["accession_number"]}',
+                'comp_URL': f'https://docoh.com/filing/{previous_ten_q_header["CIK"]}/{previous_ten_q_header["edgar_accession"]}/diff/{latest_ten_q_header["edgar_accession"]}',
                 'latest_filing_dt': ten_q_dict[max_ten_q_quarter_year][11:21],
                 'latest_filing_quarter': ten_q_dict[max_ten_q_quarter_year][8:10],
                 'previous_filing_dt': ten_q_dict[year_before_max_ten_q][11:21],

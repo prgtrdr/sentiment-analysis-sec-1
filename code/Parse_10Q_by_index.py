@@ -18,6 +18,8 @@ from html.parser import HTMLParser
 from io import StringIO
 import html
 import math
+import json
+
 
 CLEAN_10K = False
 CLEAN_10Q = True
