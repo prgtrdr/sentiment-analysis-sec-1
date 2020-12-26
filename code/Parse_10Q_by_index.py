@@ -368,6 +368,6 @@ def move_10k_10q_to_folder():
                     print('{} moved to cleaned files folder'.format(file))
 
 # Mainline code execution
-#clean_all_filings()
+clean_all_filings()
 rename_10_Q_filings()
 move_10k_10q_to_folder()

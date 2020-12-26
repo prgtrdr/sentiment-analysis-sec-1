@@ -165,7 +165,8 @@ for company in company_dir_list:
 
             ten_k_result_dict = {
                 'company': company,
-                'comp_URL': f'https://docoh.com/filing/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["edgar_accession"]}/diff/{latest_ten_k_header["edgar_accession"]}',
+                # 'comp_URL': f'https://docoh.com/filing/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["edgar_accession"]}/diff/{latest_ten_k_header["edgar_accession"]}',
+                'comp_URL': f'https://localhost:8000/abcomp/{previous_ten_k_header["CIK"]}/{previous_ten_k_header["edgar_accession"]}/{previous_ten_k_header["edgar_filename"]}/{latest_ten_k_header["edgar_accession"]}/{latest_ten_k_header["edgar_filename"]}',
                 'latest_filing_dt': ten_k_dict[max_ten_k_year][8:18],
                 'previous_filing_dt': ten_k_dict[year_before_max_ten_k][8:18],
                 'cosine_similarity': cosine_sim_ten_k
